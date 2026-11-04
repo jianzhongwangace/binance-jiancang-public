@@ -2888,9 +2888,11 @@
                 if (!MINI_CHART.pending[ck]) {
                     MINI_CHART.pending[ck] = (async function () {
                         try {
-                            const raw = (st.src === 'us') ? await fetchUSKlines(st.sina, iv, st.symbol) : await fetchChartKlines(st.symbol, iv);
+                            const raw = (st.src === 'us') ? await fetchUSKlines(st.sina, iv, st.symbol, st.sec, (US_STOCK_MAP[st.symbol] || {}).fut) : await fetchChartKlines(st.symbol, iv);
+                            // 币安时间为 UTC，+8h 平移成北京时间再进图；美股正股卡不平移
+                            const tzShift = (st.src === 'us') ? 0 : CHART_TZ_SHIFT;
                             const mapped = raw.map(function (k) {
-                                return { time: Math.floor(Number(k[0]) / 1000), open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]) };
+                                return { time: Math.floor(Number(k[0]) / 1000) + tzShift, open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]) };
                             }).filter(function (d) { return Number.isFinite(d.time) && Number.isFinite(d.close) && d.close > 0; });
                             if (mapped.length) MINI_CHART.data[ck] = { ts: Date.now(), rows: mapped };
                             return mapped.length ? '' : '该周期无 K 线数据';
@@ -2918,8 +2920,8 @@
                 st.series.setData(rows);
                 // 只有首次载入该周期才自适应缩放；手动刷新保留用户当前的视野
                 if (firstOfInterval) {
-                    if (st.src === 'us' && rows.length > 240) {
-                        // 美股为全历史数据：默认只显示最近约 180 根，向左拖/缩小即可看更早
+                    if (st.src === 'us' && (iv === '1d' || iv === '1w') && rows.length > 240) {
+                        // 美股日线/周线为全历史数据：默认只显示最近约 180 根，向左拖/缩小即可看更早
                         try {
                             st.chart.timeScale().setVisibleLogicalRange({ from: rows.length - 180, to: rows.length + 5 });
                         } catch (e) { st.chart.timeScale().fitContent(); }
@@ -4233,6 +4235,7 @@
                 <div class="summary-line primary-pnl pnl-highlight ${cls}">💵 未实现盈亏(API)：<span class="summary-value">${usdtCny(hasUpnl?upnl:NaN,2,true)}</span></div>
                 <div class="summary-line">📊 收益率(ROE): <span class="neutral">API未提供</span> · 可用(API): <span>${usdtCny(avail)}</span></div>
                 <div class="summary-line primary-pnl ${cls}">💎 账户权益(API)：<span class="summary-value">${usdtCny(Number.isFinite(eq)?eq:NaN)}</span></div>
+                ${feeTotalsLine(live.positions || {}, '💸 全部品种累计费用')}
                 <div class="summary-line ${cls}">${msg}</div>`;
         }
         function showSubaccountHome(){
@@ -4401,6 +4404,39 @@
             POSITIONS = next;
             refreshTotals();
             return { changed, error: false, liveFlat };
+        }
+
+        /* ---------- 账户级累计费用（独立追加） ----------
+           把该账户当前所有持仓的「手续费 + 资金费」汇总，给出合计成本。
+           数据来源：positions_live.js / subaccount_live.js 每个持仓的 feePaid / fundingFee
+           （同步脚本按币安 income 流水累计，负数=支出，正数=返佣/收到资金费）。 */
+        function accountFeeTotals(positions) {
+            const out = { fee: 0, fund: 0, total: 0, count: 0, hasFee: false, hasFund: false };
+            Object.keys(positions || {}).forEach(function (k) {
+                const p = positions[k] || {};
+                const f = Number(p.feePaid), fu = Number(p.fundingFee);
+                if (Number.isFinite(f)) { out.fee += f; out.hasFee = true; }
+                if (Number.isFinite(fu)) { out.fund += fu; out.hasFund = true; }
+                if (Number.isFinite(f) || Number.isFinite(fu)) out.count++;
+            });
+            out.total = out.fee + out.fund;
+            return out;
+        }
+        function fmtSigned4(v) {
+            if (!Number.isFinite(v)) return '--';
+            if (Math.abs(v) < 0.00005) return '0.0000';
+            return (v > 0 ? '+' : '-') + Math.abs(v).toFixed(4);
+        }
+        // 一行汇总文案：合计成本（手续费 + 资金费），带明细与人民币换算
+        function feeTotalsLine(positions, label) {
+            const t = accountFeeTotals(positions);
+            const known = t.hasFee || t.hasFund;
+            const cls = !known || t.total === 0 ? 'neutral' : t.total < 0 ? 'negative' : 'positive';
+            const cny = Number.isFinite(CNY_RATE) && known ? cnyOnly(t.total) : '¥--';
+            return '<div class="summary-line ' + cls + '" title="当前所有持仓自首笔成交起累计（币安 income 流水，近 90 天内）；手续费 + 资金费 = 合计成本">' +
+                label + '：<span class="summary-value">' + (known ? fmtSigned4(t.total) + ' USDT（' + cny + '）' : '--') + '</span>' +
+                (known ? ' <span style="color:var(--muted);font-size:11px;">（手续费 ' + fmtSigned4(t.fee) + ' · 资金费 ' + fmtSigned4(t.fund) + ' · ' + t.count + ' 个标的）</span>' : '') +
+                '</div>';
         }
 
         function updateLiveAccountBar() {
@@ -4602,25 +4638,67 @@
         // 币安 C2C「卖出 USDT」报价：使用卖币时对应的实时人民币报价。
         async function fetchCnyRateRequest() {
             const note = document.getElementById('cnyRateNote');
-            // 浏览器直连 www.binance.com 常被墙（返回 000），优先走本地中转 8788，再回退直连
-            const urls = [
-                'http://127.0.0.1:8788/c2c/v1/public/c2c/agent/quote-price?fiat=CNY&asset=USDT&tradeType=SELL',
-                'https://www.binance.com/bapi/c2c/v1/public/c2c/agent/quote-price?fiat=CNY&asset=USDT&tradeType=SELL'
+            // 多个数据源备用，提高稳定性
+            const sources = [
+                // 1. 本地中转（最快）
+                {
+                    url: 'http://127.0.0.1:8788/c2c/v1/public/c2c/agent/quote-price?fiat=CNY&asset=USDT&tradeType=SELL',
+                    name: '币安C2C本地',
+                    parse: (data) => Number(data?.data?.price),
+                    isJson: true
+                },
+                // 2. 币安直连
+                {
+                    url: 'https://www.binance.com/bapi/c2c/v1/public/c2c/agent/quote-price?fiat=CNY&asset=USDT&tradeType=SELL',
+                    name: '币安C2C',
+                    parse: (data) => Number(data?.data?.price),
+                    isJson: true
+                },
+                // 3. 新浪财经汇率（美元兑人民币）
+                {
+                    url: 'https://hq.sinajs.cn/rn=' + Date.now() + '&list=fx_susdcny',
+                    name: '新浪美元汇率',
+                    parse: (text) => {
+                        const match = String(text).match(/[\d.]+/g);
+                        return match && match.length >= 2 ? Number(match[1]) : NaN;
+                    },
+                    isJson: false
+                },
+                // 4. 腾讯财经汇率（美元兑人民币）
+                {
+                    url: 'https://qt.gtimg.cn/q=fx_susdcny',
+                    name: '腾讯美元汇率',
+                    parse: (text) => {
+                        const parts = String(text).split('~');
+                        return parts.length > 5 ? Number(parts[5]) : NaN;
+                    },
+                    isJson: false
+                },
+                // 5. 汇率API
+                {
+                    url: 'https://api.exchangerate-api.com/v4/latest/USD',
+                    name: '汇率API',
+                    parse: (data) => Number(data?.rates?.CNY),
+                    isJson: true
+                }
             ];
             let lastErr = '网络不可达';
-            for (let i = 0; i < urls.length; i++) {
+
+            for (let i = 0; i < sources.length; i++) {
+                const source = sources[i];
                 let timer = null;
                 try {
                     const ctl = new AbortController();
-                    timer = setTimeout(function () { ctl.abort(); }, 10000);
-                    const res = await fetch(urls[i], { cache: 'no-store', headers: { 'Accept': 'application/json' }, signal: ctl.signal });
+                    timer = setTimeout(function () { ctl.abort(); }, 8000);
+                    const res = await fetch(source.url, { cache: 'no-store', headers: { 'Accept': source.isJson ? 'application/json' : 'text/plain' }, signal: ctl.signal });
                     clearTimeout(timer); timer = null;
-                    if (!res.ok) { lastErr = 'HTTP ' + res.status; continue; }
-                    const payload = await res.json();
-                    const rate = Number(payload && payload.data && payload.data.price);
-                    if (!Number.isFinite(rate) || rate < 4 || rate > 10) { lastErr = '无有效 C2C 报价'; continue; }
+                    if (!res.ok) { lastErr = source.name + ' HTTP ' + res.status; continue; }
+                    const data = source.isJson ? await res.json() : await res.text();
+                    const rate = source.parse(data);
+                    if (!Number.isFinite(rate) || rate < 6 || rate > 8) { lastErr = source.name + ' 无效(' + rate + ')'; continue; }
                     CNY_RATE = rate;
-                    if (note) note.textContent = `币安 C2C 卖出价 ${rate.toFixed(4)} CNY/USDT（实时）`;
+                    if (note) note.textContent = `${source.name} ${rate.toFixed(4)} CNY/USDT（实时）`;
+                    console.log('✅ 汇率获取成功:', source.name, rate);
                     refreshCnyAmountNotes();
                     renderFeed();
                     updateLiveAccountBar();
@@ -4628,13 +4706,17 @@
                     return;
                 } catch (err) {
                     if (timer) clearTimeout(timer);
-                    lastErr = err && err.name === 'AbortError' ? '请求超时' : (err && err.message ? err.message : '网络请求失败');
+                    lastErr = source.name + ': ' + (err && err.name === 'AbortError' ? '超时' : (err && err.message ? err.message : '失败'));
+                    console.warn('⚠️', source.name, '失败:', lastErr);
                 }
             }
+
+            // 所有API都失败
             const hint = '；若提示网络不可达，双击桌面启动器重启中转服务';
             if (note) note.textContent = Number.isFinite(CNY_RATE)
-                ? `币安 C2C 卖出价 ${CNY_RATE.toFixed(4)} CNY/USDT（上次报价；刷新失败：${lastErr}${hint}）`
-                : `币安 C2C 卖出汇率暂不可用（${lastErr}${hint}），人民币显示 --`;
+                ? `使用上次汇率 ${CNY_RATE.toFixed(4)} CNY/USDT（刷新失败：${lastErr}${hint}）`
+                : `所有汇率源不可用（${lastErr}${hint}），人民币显示 --`;
+            console.error('❌ 所有汇率源失败:', lastErr);
         }
 
         let cnyRateRequest = null;
@@ -4825,6 +4907,7 @@
             const totalCls = !hasAccountPnl ? 'neutral' : accountPnl > 0 ? 'positive' : accountPnl < 0 ? 'negative' : 'neutral';
             summary.innerHTML = '<div class="summary-line"><strong>持仓合计</strong> · 已收到 ' + quoteCount + '/' + Object.keys(POSITIONS).length + ' 个标的行情</div>' +
                 '<div class="summary-line ' + totalCls + '">账户未实现盈亏(API)：<strong>' + usdtCny(hasAccountPnl ? accountPnl : NaN, 2, true) + '</strong></div>' +
+                feeTotalsLine((window.__BINANCE_LIVE__ && window.__BINANCE_LIVE__.positions) || {}, '💸 全部品种累计费用') +
                 '<div class="summary-line" style="color:var(--muted);font-size:11px;">点击卡片查看单品详情、近一个月走势、相关新闻与未来时间表。</div>';
 
             // 产品卡片渲染完成后，确保导航功能正常
@@ -5305,7 +5388,8 @@
         // 图表默认周期（用户要求默认看周线）：改这里即可，例如 '1h' / '1d'
         const DEFAULT_CHART_INTERVAL = '1w';
         // 美股正股卡片自己的周期档位（新浪只有日线，周线/月线由日线本地聚合）
-        const US_CHART_INTERVALS = [['1d', '日线'], ['1w', '周线'], ['1M', '月线']];
+        // 美股卡周期与币安卡同款 7 档：分钟线走东财（经本地中转），日线/周线仍用新浪全历史
+        const US_CHART_INTERVALS = [['5m', '5分'], ['15m', '15分'], ['30m', '30分'], ['1h', '1小时'], ['4h', '4小时'], ['1d', '日线'], ['1w', '周线']];
         const US_CHART_STEP = { '60m': 3600, '1d': 86400, '1w': 604800, '1M': 2592000 };
 
         /* ============================================================
@@ -5319,6 +5403,12 @@
         let entryTimesEl = null;
         const ENTRY_CHART_STEP = { '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '4h': 14400, '1d': 86400, '1w': 604800 };
 
+        // 币安 K 线的 openTime 是 UTC 时间戳，lightweight-charts 会原样显示成 UTC，
+        // 横轴比北京时间慢 8 小时。统一把币安图表的时间 +8h 平移后再进图，
+        // 横轴/十字光标即显示北京时间（美股正股卡本来就是美东日期轴，不平移）。
+        const CHART_TZ_SHIFT = 8 * 3600; // 秒
+        function bjShift(k) { return Math.floor(Number(k) / 1000) + CHART_TZ_SHIFT; }
+
         function entryTimeInfo(acct, symbol) {
             // 只给主/子账户的币安持仓画建仓标记；美股正股卡片（acct='u'）没有建仓概念
             if (acct !== 'm' && acct !== 's') return null;
@@ -5328,10 +5418,11 @@
         }
 
         // 建仓时刻 → 该周期对应的 K 线开盘时间（必须在现有数据里，否则 marker 不显示）
+        // 注意：图内时间已 +8h 平移成北京时间，建仓时刻也要同样平移后再对齐
         function entryBarTime(rows, tMs, iv) {
             if (!Array.isArray(rows) || !rows.length || !(Number(tMs) > 0)) return null;
             const step = ENTRY_CHART_STEP[iv] || 3600;
-            const target = Math.floor(Number(tMs) / 1000 / step) * step;
+            const target = Math.floor((Number(tMs) / 1000 + CHART_TZ_SHIFT) / step) * step;
             if (target < rows[0].time) return null;   // 建仓早于本周期数据范围
             let pick = null;
             for (let i = 0; i < rows.length; i++) {
@@ -5501,6 +5592,43 @@
 
         // 把腾讯实时报价拼成「今日 bar」追加/替换到新浪日线末尾：
         // 新浪日 K 在盘中不含当天（实测最后一根是上一交易日），不补的话图上价格永远停在昨天收盘
+        // 新浪全球期货日K（COMEX 黄金等）：响应为「var <cb>=(数组)」形式，加载后读 window[cb]；
+        // 数据自带当日盘中 bar，无需拼实时 bar，也没有拆股问题
+        const US_FUT_DAILY_CACHE = {};
+        function fetchSinaFutDailyK(fut) {
+            const cached = US_FUT_DAILY_CACHE[fut];
+            if (cached && (Date.now() - cached.ts) < US_DAILY_TTL) return Promise.resolve(cached.rows);
+            const cb = 'snf_' + Math.random().toString(36).slice(2, 10);
+            const url = 'https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20' + cb +
+                '=/GlobalFuturesService.getGlobalFuturesDailyKLine?symbol=' + encodeURIComponent(fut);
+            return new Promise(function (resolve, reject) {
+                let timer = null, s = null;
+                const clean = function () {
+                    clearTimeout(timer);
+                    try { delete window[cb]; } catch (e) {}
+                    try { if (s && s.parentNode) s.parentNode.removeChild(s); } catch (e) {}
+                };
+                timer = setTimeout(function () { clean(); reject(new Error('期货日K请求超时')); }, 20000);
+                s = document.createElement('script');
+                s.charset = 'utf-8';
+                s.src = url;
+                s.onload = function () {
+                    const data = window[cb];
+                    clean();
+                    if (!Array.isArray(data) || !data.length) { reject(new Error('期货日K无数据')); return; }
+                    const rows = data.map(function (r) {
+                        return { t: Date.parse(String(r.date) + 'T00:00:00Z'), o: Number(r.open), h: Number(r.high), l: Number(r.low), c: Number(r.close) };
+                    }).filter(function (r) { return Number.isFinite(r.t) && Number(r.c) > 0; })
+                      .sort(function (a, b) { return a.t - b.t; });
+                    if (!rows.length) { reject(new Error('期货日K解析失败')); return; }
+                    US_FUT_DAILY_CACHE[fut] = { ts: Date.now(), rows: rows };
+                    resolve(rows);
+                };
+                s.onerror = function () { clean(); reject(new Error('期货日K源不可达')); };
+                document.head.appendChild(s);
+            });
+        }
+
         function applyUSLiveBar(rows, ticker) {
             const q = ticker && US_STOCK_QUOTES[ticker];
             if (!q || !(Number(q.price) > 0) || !q.ts) return rows;
@@ -5548,17 +5676,122 @@
         // 避免十几年前的低价区把当前行情压成一条线。
         const US_HISTORY_DAYS = 1100;
 
-        async function fetchUSKlines(sina, interval, ticker) {
-            // sina 为空表示该标的没有可用的历史 K 线源（例如 COMEX 黄金期货）
-            if (!sina) throw new Error('该标的暂无 K 线数据源（非美股标的）');
-            const daily = await fetchSinaDailyK(sina);
-            const withLive = applyUSLiveBar(daily, ticker);
-            const adjusted = adjustSplits(withLive);
+        /* ---------- 美股分钟 K（东财 push2his，独立追加） ----------
+           东财支持美股 5/15/30/60 分钟线（4小时由 60 分钟聚合）。
+           本机直连 push2his 不可达，浏览器优先走本地中转 /em/（relay 经系统代理转发），
+           失败再试直连（在能直连东财的网络环境下可用）。 */
+        const US_EM_KLT = { '5m': 5, '15m': 15, '30m': 30, '1h': 60 };
+        const US_EM_LMT = { '5m': 300, '15m': 300, '30m': 320, '1h': 420 };
+        // 东财分钟线的时间串是北京时间；按 UTC 解析进图，图表会原样显示这串时间，
+        // 与币安图「+8h 平移后显示北京时间」的口径一致
+        function parseEmTime(s) { const t = Date.parse(String(s || '').replace(' ', 'T') + 'Z'); return Number.isFinite(t) ? t : NaN; }
+        // 按 4h 对齐聚合（bucket = 时间戳对 4 小时取整），60分钟 → 4小时
+        function aggregateBySec(rows, secMs) {
+            const out = [];
+            let cur = null, key = NaN;
+            rows.forEach(function (r) {
+                const k = Math.floor(r.t / secMs);
+                if (k !== key) {
+                    if (cur) out.push(cur);
+                    cur = { t: r.t, o: r.o, h: r.h, l: r.l, c: r.c };
+                    key = k;
+                } else {
+                    if (r.h > cur.h) cur.h = r.h;
+                    if (r.l < cur.l) cur.l = r.l;
+                    cur.c = r.c;
+                }
+            });
+            if (cur) out.push(cur);
+            return out;
+        }
+        async function fetchEmKlines(secid, interval) {
+            const klt = US_EM_KLT[interval];
+            if (!secid || !klt) throw new Error('该标的/周期暂无分钟线数据源');
+            const lmt = US_EM_LMT[interval] || 400;
+            // 外盘期货（101. 开头）不支持前复权，必须 fqt=0，否则返回空
+            const fqt = (String(secid).indexOf('101.') === 0) ? 0 : 1;
+            const qs = '?secid=' + encodeURIComponent(secid) + '&klt=' + klt + '&fqt=' + fqt + '&lmt=' + lmt +
+                '&end=20500101&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56';
+            const urls = [
+                'http://127.0.0.1:8788/em/api/qt/stock/kline/get' + qs,
+                'https://push2his.eastmoney.com/api/qt/stock/kline/get' + qs
+            ];
+            let lastErr = '分钟线数据源不可达';
+            for (let i = 0; i < urls.length; i++) {
+                let timer = null;
+                try {
+                    const ctl = new AbortController();
+                    timer = setTimeout(function () { ctl.abort(); }, 10000);
+                    const res = await fetch(urls[i], { cache: 'no-store', credentials: 'omit', signal: ctl.signal });
+                    clearTimeout(timer); timer = null;
+                    if (!res.ok) { lastErr = 'HTTP ' + res.status; continue; }
+                    const payload = await res.json();
+                    const ks = payload && payload.data && payload.data.klines;
+                    if (!Array.isArray(ks) || !ks.length) { lastErr = '无分钟K线数据'; continue; }
+                    // 东财字段顺序：时间,开,收,高,低,量
+                    const rows = ks.map(function (line) {
+                        const p = String(line).split(',');
+                        return { t: parseEmTime(p[0]), o: Number(p[1]), c: Number(p[2]), h: Number(p[3]), l: Number(p[4]) };
+                    }).filter(function (r) { return Number.isFinite(r.t) && r.o > 0 && r.h > 0 && r.l > 0 && r.c > 0; });
+                    if (!rows.length) { lastErr = '分钟K线解析失败'; continue; }
+                    return (interval === '4h') ? aggregateBySec(rows, 4 * 3600000) : rows;
+                } catch (err) {
+                    if (timer) clearTimeout(timer);
+                    lastErr = err && err.name === 'AbortError' ? '请求超时' : (err && err.message ? err.message : '网络请求失败');
+                }
+            }
+            throw new Error(lastErr);
+        }
+
+        async function fetchUSKlines(sina, interval, ticker, secid, fut) {
+            // 分钟级（5m/15m/30m/1h/4h）：东财分钟 K（4h 由 60 分钟聚合）
+            if (interval !== '1d' && interval !== '1w' && interval !== '1M') {
+                const em = await fetchEmKlines(secid, interval);
+                return em.map(function (r) { return [r.t, r.o, r.h, r.l, r.c]; });
+            }
+            // 日/周线：美股正股走新浪日K（前复权 + 近三年）；期货（如 COMEX 黄金 GC）走新浪全球期货日K
             const cutoff = Date.now() - US_HISTORY_DAYS * 86400000;
-            const agg = aggregateDaily(adjusted.filter(function (r) { return r.t >= cutoff; }), interval);
-            const rows = agg;
-            if (!rows.length) throw new Error('无有效的 K 线数据');
-            return rows.map(function (r) { return [r.t, r.o, r.h, r.l, r.c]; });
+            let agg;
+            if (sina) {
+                const daily = await fetchSinaDailyK(sina);
+                const adjusted = adjustSplits(applyUSLiveBar(daily, ticker));
+                agg = aggregateDaily(adjusted.filter(function (r) { return r.t >= cutoff; }), interval);
+            } else if (fut) {
+                const daily = await fetchSinaFutDailyK(fut);
+                agg = aggregateDaily(daily.filter(function (r) { return r.t >= cutoff; }), interval);
+            } else {
+                throw new Error('该标的暂无 K 线数据源');
+            }
+            if (!agg.length) throw new Error('无有效的 K 线数据');
+            return agg.map(function (r) { return [r.t, r.o, r.h, r.l, r.c]; });
+        }
+
+        // K线数据缓存
+        const KLINE_CACHE = new Map();
+
+        function getKlineCacheKey(symbol, interval) {
+            return symbol + '_' + interval;
+        }
+
+        function getCachedKline(symbol, interval) {
+            const key = getKlineCacheKey(symbol, interval);
+            const cached = KLINE_CACHE.get(key);
+            if (!cached) return null;
+
+            // 缓存有效期：日线60分钟，周线120分钟，其他15分钟
+            let maxAge = 15 * 60 * 1000;
+            if (interval === '1d') maxAge = 60 * 60 * 1000;
+            if (interval === '1w') maxAge = 120 * 60 * 1000;
+
+            if (Date.now() - cached.time < maxAge) {
+                return cached.data;
+            }
+            return null;
+        }
+
+        function setCachedKline(symbol, interval, data) {
+            const key = getKlineCacheKey(symbol, interval);
+            KLINE_CACHE.set(key, { time: Date.now(), data: data });
         }
 
         async function fetchChartKlines(symbol, interval) {
@@ -5574,18 +5807,30 @@
                 let timer = null;
                 try {
                     const ctl = new AbortController();
-                    timer = setTimeout(function () { ctl.abort(); }, 10000);
+                    timer = setTimeout(function () { ctl.abort(); }, 5000);
                     const res = await fetch(urls[i], { cache: 'no-store', credentials: 'omit', signal: ctl.signal });
                     clearTimeout(timer); timer = null;
                     if (!res.ok) { lastError = 'HTTP ' + res.status; continue; }
                     const rows = await res.json();
-                    if (Array.isArray(rows) && rows.length) return rows;
+                    if (Array.isArray(rows) && rows.length) {
+                        setCachedKline(symbol, interval, rows);
+                        console.log('✅ K线获取成功:', symbol, interval, rows.length, '条');
+                        return rows;
+                    }
                     lastError = '返回数据为空';
                 } catch (err) {
                     if (timer) clearTimeout(timer);
                     lastError = err && err.name === 'AbortError' ? '请求超时' : (err && err.message ? err.message : '网络请求失败');
                 }
             }
+
+            // 所有API都失败，尝试使用缓存
+            const cached = getCachedKline(symbol, interval);
+            if (cached) {
+                console.warn('⚠️ K线API失败，使用缓存:', symbol, interval, cached.length, '条 (缓存)');
+                return cached;
+            }
+
             throw new Error(lastError);
         }
 
@@ -5670,7 +5915,7 @@
                 const rows = await fetchChartKlines(st.symbol, st.interval);
                 if (st.reqId !== reqId) return;
                 const data = rows.map(function (k) {
-                    return { time: Math.floor(Number(k[0]) / 1000), open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]) };
+                    return { time: bjShift(k[0]), open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]) };
                 }).filter(function (d) { return Number.isFinite(d.time) && Number.isFinite(d.close) && d.close > 0; });
                 if (!data.length) throw new Error('没有有效的 K 线数据');
                 st.series.setData(data);
@@ -5855,7 +6100,7 @@
             'AMZNUSDT': { sec: '105.AMZN', ticker: 'AMZN', tx: 'usAMZN', sina: 'AMZN', label: '亚马逊正股' },
             'GOOGLUSDT': { sec: '105.GOOGL', ticker: 'GOOGL', tx: 'usGOOGL', sina: 'GOOGL', label: '谷歌正股' },
             'SPCXUSDT': { sec: '105.SPCX', ticker: 'SPCX', tx: 'usSPCX', sina: 'SPCX', label: 'SpaceX 正股' },
-            'XAUUSDT': { sec: '101.GC00Y', ticker: 'GC00Y', tx: 'hf_GC', sina: '', label: 'COMEX黄金（期货）', soft: true }
+            'XAUUSDT': { sec: '101.GC00Y', ticker: 'GC00Y', tx: 'hf_GC', sina: '', fut: 'GC', label: 'COMEX黄金（期货）', soft: true }
         };
         let US_STOCK_QUOTES = {};
         let usStockTimer = null;
@@ -5981,11 +6226,11 @@
         }
 
         // 报价每 60s 到达后，把美股日线图最后一根 bar 原地更新为实时价（只 update 不重建，无闪烁）
-        // 周线/月线的最后一根起始时间不是“今天”，直接跳过（切回日线或手动 ↻ 可见最新）
+        // 周线/分钟线的最后一根起始时间不是“今天”，直接跳过（切回日线或手动 ↻ 可见最新）
         function updateUSMiniChartsLive() {
             Object.keys(MINI_CHART.pool).forEach(function (k) {
                 const st = MINI_CHART.pool[k];
-                if (!st || st.src !== 'us' || !st.series || !Array.isArray(st.rows) || !st.rows.length) return;
+                if (!st || st.src !== 'us' || st.interval !== '1d' || !st.series || !Array.isArray(st.rows) || !st.rows.length) return;
                 const q = US_STOCK_QUOTES[st.symbol];
                 if (!q || !(Number(q.price) > 0) || !q.ts) return;
                 if (!usInRegularHours(q.ts)) return;
@@ -6027,7 +6272,7 @@
         // 否则同一 ticker 在主/子区域各有一张卡时会共用同一个图表实例，只有最后一张能画出图。
         function usChartHtml(ticker, sec, scope, sina) {
             const key = 'u' + (scope || 'm') + ':' + ticker;
-            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(ticker) + '" data-src="us" data-sec="' + escHtml(sec || '') + '" data-sina="' + escHtml(sina || '') + '" data-entry="0" data-liq="0" title="美股正股蜡烛图（新浪日K · 前复权 · 近三年，周/月线由日线聚合）· 日线/周线/月线可切换 · 不自动刷新"><div class="pc-chart-tip">走势加载中…</div></div>';
+            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(ticker) + '" data-src="us" data-sec="' + escHtml(sec || '') + '" data-sina="' + escHtml(sina || '') + '" data-entry="0" data-liq="0" title="美股正股蜡烛图（分钟线：东财 · 日线/周线：新浪日K 前复权·近三年）· 5分~周线可切换 · 不自动刷新"><div class="pc-chart-tip">走势加载中…</div></div>';
         }
 
         // 没有在美股上市的品种：右侧用一张说明卡占位，避免配对布局出现空白
