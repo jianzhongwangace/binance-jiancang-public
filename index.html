@@ -546,6 +546,16 @@
         .pc-mg { display:flex; align-items:baseline; justify-content:flex-end; gap:4px; min-width:0; flex:0 0 auto; text-align:right; line-height:1.2; }
         .pc-mg i { display:block; flex:0 0 auto; font-style:normal; font-size:8.5px; color:var(--muted); }
         .pc-mg b { min-width:0; font-size:10px; font-family:Consolas,monospace; color:var(--text); font-weight:700; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
+        /* 醒目：持仓金额（名义价值 notional）+ 保证金（initialMargin / live sync） */
+        .pc-hold-mg { display:flex; align-items:stretch; justify-content:space-between; gap:8px; margin:2px 0 4px; padding:5px 8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); }
+        .pc-hold-mg > div { display:flex; align-items:baseline; gap:5px; min-width:0; flex:1 1 0; }
+        .pc-hold-mg > div:last-child { justify-content:flex-end; text-align:right; }
+        .pc-hold-mg span, .pc-hold-mg i { font-style:normal; font-size:10px; color:var(--muted); white-space:nowrap; }
+        .pc-hold-mg b { font-size:12px; font-family:Consolas,monospace; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .pc-hold-mg b.side-long { color:var(--up); }
+        .pc-hold-mg b.side-short { color:var(--down); }
+        .pc-hold-mg .pc-mg { flex:1 1 0; }
+
         /* 一行三大指标：收益率(ROE) | 今日涨跌 | 未实现盈亏（API），嵌在卡片首行中段 */
         /* 美股正股行情行：币安永续价格之外的真实美股报价 + 永续相对正股的溢价 */
         /* 美股正股卡片：与币安持仓卡并列，蓝色左边框区分，不可点击（无持仓详情） */
@@ -949,6 +959,7 @@
                             <label style="color: var(--muted); font-size: 11px;">排序：</label>
                             <select id="mainSortSelector" onchange="changeMainSort(this.value)" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer;">
                                 <option value="margin">按保证金（默认）</option>
+                                <option value="qty">按持仓</option>
                                 <option value="pnl">按总盈亏</option>
                                 <option value="pnlPercent">按收益率</option>
                                 <option value="dayChange">按今日涨跌</option>
@@ -1039,6 +1050,7 @@
                             <label style="color: var(--muted); font-size: 11px;">排序：</label>
                             <select id="subSortSelector" onchange="changeSubSort(this.value)" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer;">
                                 <option value="margin">按保证金（默认）</option>
+                                <option value="qty">按持仓</option>
                                 <option value="pnl">按总盈亏</option>
                                 <option value="pnlPercent">按收益率</option>
                                 <option value="dayChange">按今日涨跌</option>
@@ -4048,7 +4060,7 @@
         let lastUpdateTime = 0;
 
         // 排序相关变量
-        let mainSortMode = 'margin'; // margin, pnl, pnlPercent, dayChange, name
+        let mainSortMode = 'margin'; // margin, qty, pnl, pnlPercent, dayChange, name
         let subSortMode = 'margin';
 
         const MODE_META = {
@@ -4089,6 +4101,11 @@
                         const dA = dayChangePct(symbolA, a.price);
                         const dB = dayChangePct(symbolB, b.price);
                         return (Number.isFinite(dB) ? dB : -Infinity) - (Number.isFinite(dA) ? dA : -Infinity);
+
+                    case 'qty': // 按持仓金额（名义价值：|positionAmt|×mark 或 API notional）从大到小
+                        const qA = (function(){ const amt=Math.abs(Number(a && a.positionAmt != null ? a.positionAmt : (a && a.config && a.config.quantity)) || 0); const mk=a && a.priceValid ? Number(a.price) : 0; if (amt && mk>0) return amt*mk; return Math.abs(Number(a && a.config && a.config.notional) || 0); })();
+                        const qB = (function(){ const amt=Math.abs(Number(b && b.positionAmt != null ? b.positionAmt : (b && b.config && b.config.quantity)) || 0); const mk=b && b.priceValid ? Number(b.price) : 0; if (amt && mk>0) return amt*mk; return Math.abs(Number(b && b.config && b.config.notional) || 0); })();
+                        return qB - qA;
 
                     case 'name': // 按名称排序（A-Z）
                         const nameA = (a.config.name || symbolA).toLowerCase();
@@ -4164,6 +4181,11 @@
                         const dA = dayChangePct(symbolA, xA.mark);
                         const dB = dayChangePct(symbolB, xB.mark);
                         return (Number.isFinite(dB) ? dB : -Infinity) - (Number.isFinite(dA) ? dA : -Infinity);
+
+                    case 'qty': // 按持仓金额（名义价值：|amt|×mark 或 API notional）从大到小
+                        const qA = (function(){ const amt=Math.abs(Number(xA.amt != null ? xA.amt : xA.qty) || 0); const mk=xA.markValid ? Number(xA.mark) : 0; if (amt && mk>0) return amt*mk; return Math.abs(Number(pA && pA.notional) || 0); })();
+                        const qB = (function(){ const amt=Math.abs(Number(xB.amt != null ? xB.amt : xB.qty) || 0); const mk=xB.markValid ? Number(xB.mark) : 0; if (amt && mk>0) return amt*mk; return Math.abs(Number(pB && pB.notional) || 0); })();
+                        return qB - qA;
 
                     case 'name': // 按名称排序
                         const cfgA = subPositionConfig(symbolA, pA);
@@ -4264,7 +4286,13 @@
                 const fuT=sgnF(fuV), costV=(Number.isFinite(feeV)&&Number.isFinite(fuV))?(feeV+fuV):NaN, costT=sgnF(costV);
                 const costC=!Number.isFinite(costV)||costV===0?'muted':costV<0?'negative':'positive';
                 const rpC=!Number.isFinite(rpV)||rpV===0?'muted':rpV>0?'positive':'negative';
-                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b></span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b></span></span><span class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b></span></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b></div><div><span>建仓价</span><b>${entry.toFixed(2)}</b></div><div><span>标记价</span><b>${fmt(mark)}</b></div><div><span>初始保证金</span><b>${usdtCny(mUsdt)}</b></div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b></div><div><span>手续费</span><b class="muted">${feeT}</b></div><div><span>资金费</span><b class="muted">${fuT}</b></div><div><span>合计成本</span><b class="${costC}">${costT}</b></div><div><span>交易费率</span><b class="muted">${frT}</b></div></div></button>${usStockCardHtml(symbol, mark, 's', c.name)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
+                const sideKey=(c.side==='short'||(Number.isFinite(Number(x.amt))&&Number(x.amt)<0))?'short':'long';
+                const sideText=sideKey==='short'?'空':'多';
+                const sideCls=sideKey==='short'?'side-short':'side-long';
+                const amtAbs=Math.abs(Number(x.amt!=null?x.amt:(c.quantity!=null?c.quantity:(x.qty||0)))||0);
+                const notionalLive=(x.markValid&&amtAbs>0)?(amtAbs*x.mark):NaN;
+                const notionalUsdt=Number.isFinite(notionalLive)?notionalLive:Math.abs(Number(p.notional)||0);
+                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b></span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b></span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b></div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b></div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b></div><div><span>建仓价</span><b>${entry.toFixed(2)}</b></div><div><span>标记价</span><b>${fmt(mark)}</b></div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b></div><div><span>手续费</span><b class="muted">${feeT}</b></div><div><span>资金费</span><b class="muted">${fuT}</b></div><div><span>合计成本</span><b class="${costC}">${costT}</b></div><div><span>交易费率</span><b class="muted">${frT}</b></div></div></button>${usStockCardHtml(symbol, mark, 's', c.name)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
             // 图表同帧挂回（不重建、不重新取数），避免 5 秒重绘时图区闪一下占位文字
             if (typeof mountMiniCharts === 'function') mountMiniCharts();
             const wallet=Number(a.totalWalletBalance),initM=Number(a.totalPositionInitialMargin),upnl=a.totalUnrealizedProfit==null?NaN:Number(a.totalUnrealizedProfit),eq=Number(a.totalMarginBalance),avail=Number(a.availableBalance),hasUpnl=Number.isFinite(upnl),cls=!hasUpnl?'neutral':upnl>0?'positive':upnl<0?'negative':'neutral';
@@ -4938,6 +4966,13 @@
                 const feeVal = c.feePaid == null ? NaN : Number(c.feePaid);
                 const frVal = c.feeRate == null ? NaN : Number(c.feeRate);
                 const fuVal = c.fundingFee == null ? NaN : Number(c.fundingFee);
+                // 卡片醒目：持仓金额=名义价值（|positionAmt|×mark，回退 API notional）；保证金=initialMargin
+                const sideKey = (c.side === 'short' || (Number.isFinite(Number(x.positionAmt)) && Number(x.positionAmt) < 0)) ? 'short' : 'long';
+                const sideText = sideKey === 'short' ? '空' : '多';
+                const sideCls = sideKey === 'short' ? 'side-short' : 'side-long';
+                const amtAbs = Math.abs(Number(x.positionAmt != null ? x.positionAmt : c.quantity) || 0);
+                const notionalLive = (x.priceValid && amtAbs > 0) ? (amtAbs * x.price) : NaN;
+                const notionalUsdt = Number.isFinite(notionalLive) ? notionalLive : Math.abs(Number(c.notional) || 0);
                 const fmtSigned2 = function(v) {
                     if (!Number.isFinite(v)) return '--';
                     if (v === 0) return '0.0000';
@@ -4965,13 +5000,17 @@
                     dayChangeHtml(symbol, x.price) +
                     '<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</b></span>' +
                     '</span>' +
-                    '<span class="pc-mg"><i>保证金</i><b>' + usdtCny(marginUsdt) + '</b></span></div>' +
+                    '</div>' +
+                    '<div class="pc-hold-mg" title="持仓=名义价值（|positionAmt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin">' +
+                    '<div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b></div>' +
+                    '<div class="pc-mg"><i>保证金</i><b>' + usdtCny(marginUsdt) + '</b></div></div>' +
                     usStockHtml(symbol, x.priceValid ? x.price : NaN) +
                     miniChartHtml('m', symbol, c.entryPrice, liq) +
-                    '<div class="pc-info"><div><span>爆仓价(API)</span><b>' + (Number.isFinite(liq) ? liq.toFixed(2) : '--') + '</b></div>' +
+                    '<div class="pc-info"><div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b></div>' +
+                    '<div><span>保证金</span><b>' + usdtCny(marginUsdt) + '</b></div>' +
+                    '<div><span>爆仓价(API)</span><b>' + (Number.isFinite(liq) ? liq.toFixed(2) : '--') + '</b></div>' +
                     '<div><span>建仓价</span><b>' + Number(c.entryPrice).toFixed(2) + '</b></div>' +
-                    '<div><span>标记价</span><b>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</b></div>' +
-                    '<div><span>初始保证金</span><b>' + usdtCny(marginUsdt) + '</b></div></div>' +
+                    '<div><span>标记价</span><b>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</b></div></div>' +
                     '<div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口">' +
                     '<div><span>已实现盈亏</span><b class="' + rpCls + '">' + rpText + '</b></div>' +
                     '<div><span>手续费</span><b class="muted">' + feeText + '</b></div>' +
