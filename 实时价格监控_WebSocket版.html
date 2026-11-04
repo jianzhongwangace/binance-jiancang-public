@@ -578,6 +578,9 @@
         .pc-chart { margin:6px 0 4px; height:200px; position:relative; }
         .pc-chart .mc-wrap { display:flex; flex-direction:column; height:100%; width:100%; }
         .pc-chart .mc-body { flex:1 1 auto; min-height:0; position:relative; }
+        /* 美股开盘：贯穿图高的淡蓝虚竖线（LWC v4 setMarkers 无竖线 shape，用 overlay） */
+        .us-open-vlines { position:absolute; inset:0; pointer-events:none; z-index:4; overflow:hidden; }
+        .us-open-vline { position:absolute; top:0; bottom:0; width:0; border-left:2px dashed rgba(11, 99, 197, 0.42); transform:translateX(-1px); box-sizing:border-box; }
         .pc-chart .mc-iv { cursor:pointer; user-select:none; }
         /* 图表浮层：卡片每 5 秒整体重建也不会碰到图表本体（不会闪、不会重置缩放） */
         #mcLayer { position:fixed; left:0; top:0; width:0; height:0; z-index:6; pointer-events:none; }
@@ -927,7 +930,7 @@
             <button class="btn" onclick="location.reload()">🔄 重新连接</button>
             <button class="btn" id="toggleBtn" onclick="toggleStream()">⏸️ 暂停更新</button>
             <button class="btn" id="apiRefreshBtn" onclick="refreshFromBinanceApi()">⬇️ 一键从币安API更新</button>
-            <div id="liveAccountBar" class="lab-muted">持仓同步：等待 positions_live.js …（请先运行「启动持仓同步.bat」）</div>
+            <div id="liveAccountBar" class="lab-muted">持仓同步：等待自动同步写入 positions_live.js …（登录后后台已自启，请稍候）</div>
         </div>
 
         <div class="separator"></div>
@@ -2921,7 +2924,7 @@
                 // 只有首次载入该周期才自适应缩放；手动刷新保留用户当前的视野
                 if (firstOfInterval) {
                     if (st.src === 'us' && (iv === '1d' || iv === '1w') && rows.length > 240) {
-                        // 美股日线/周线为全历史数据：默认只显示最近约 180 根，向左拖/缩小即可看更早
+                        // 美股日线/周线为近三年数据：默认只显示最近约 180 根，向左拖/缩小即可看更早；月线 fitContent 展示上市至今
                         try {
                             st.chart.timeScale().setVisibleLogicalRange({ from: rows.length - 180, to: rows.length + 5 });
                         } catch (e) { st.chart.timeScale().fitContent(); }
@@ -3046,6 +3049,7 @@
             if (cw > 40 && ch > 40 && (cw !== st.w || ch !== st.h)) {
                 st.w = cw; st.h = ch;
                 try { st.chart.applyOptions({ width: cw, height: ch }); } catch (e) {}
+                try { syncUsOpenVlinePositions(st); } catch (e) {}
             }
         }
 
@@ -4081,8 +4085,10 @@
                         const roeB = b.valid ? (b.pnlUsdt / marginB) * 100 : -Infinity;
                         return roeB - roeA;
 
-                    case 'dayChange': // 按今日涨跌排序（从高到低）
-                        return b.changePercent - a.changePercent;
+                    case 'dayChange': // 按今日涨跌排序（当日开盘→最新价，从高到低）
+                        const dA = dayChangePct(symbolA, a.price);
+                        const dB = dayChangePct(symbolB, b.price);
+                        return (Number.isFinite(dB) ? dB : -Infinity) - (Number.isFinite(dA) ? dA : -Infinity);
 
                     case 'name': // 按名称排序（A-Z）
                         const nameA = (a.config.name || symbolA).toLowerCase();
@@ -4098,32 +4104,66 @@
             };
         }
 
+        // 子账户标记价：优先主账户实时行情（WS/HTTP），回退到最近一次 sync 快照
+        function subMarkPrice(symbol, snapshot) {
+            const lv = Number(priceData[symbol]);
+            if (Number.isFinite(lv) && lv > 0) return lv;
+            const snap = (snapshot != null && typeof snapshot === 'object')
+                ? Number(snapshot.markPrice)
+                : Number(snapshot);
+            return Number.isFinite(snap) && snap > 0 ? snap : 0;
+        }
+        // 子账户即时验算（与主账户 positionNumbers 同口径）
+        function subPositionNumbers(symbol, p) {
+            if (!p) return null;
+            const entry = Number(p.entryPrice) || 0;
+            const qty = Math.abs(Number(p.quantity) || 0);
+            const amt = (p.positionAmt != null && Number.isFinite(Number(p.positionAmt)))
+                ? Number(p.positionAmt)
+                : ((p.side === 'short' ? -1 : 1) * qty);
+            const mark = subMarkPrice(symbol, p.markPrice);
+            const markValid = Number.isFinite(mark) && mark > 0;
+            const apiPnl = p.unRealizedProfit == null ? NaN : Number(p.unRealizedProfit);
+            let pnl = apiPnl;
+            if (markValid && entry > 0 && Number.isFinite(amt) && amt !== 0) {
+                pnl = (mark - entry) * amt;
+            }
+            const initM = Number(p.initialMargin != null ? p.initialMargin : p.margin) || 0;
+            const roe = (Number.isFinite(pnl) && initM > 0) ? (pnl / initM) * 100 : NaN;
+            return {
+                mark: mark, markValid: markValid, entry: entry, amt: amt, qty: qty,
+                initM: initM, pnl: pnl, pnlValid: Number.isFinite(pnl), apiPnl: apiPnl, roe: roe
+            };
+        }
+        function dayChangePct(symbol, price) {
+            const p = Number(price);
+            const hit = (typeof dayOpenCache !== 'undefined') ? dayOpenCache[symbol] : null;
+            const o = hit ? Number(hit.open) : NaN;
+            if (!(Number.isFinite(p) && p > 0 && Number.isFinite(o) && o > 0)) return NaN;
+            return ((p - o) / o) * 100;
+        }
         function getSubSortComparator(mode, positions) {
             return function(symbolA, symbolB) {
                 const pA = positions[symbolA];
                 const pB = positions[symbolB];
+                const xA = subPositionNumbers(symbolA, pA) || {};
+                const xB = subPositionNumbers(symbolB, pB) || {};
 
                 switch(mode) {
-                    case 'pnl': // 按总盈亏排序
-                        const pnlA = pA.unRealizedProfit != null ? Number(pA.unRealizedProfit) : -Infinity;
-                        const pnlB = pB.unRealizedProfit != null ? Number(pB.unRealizedProfit) : -Infinity;
+                    case 'pnl': // 按总盈亏排序（即时验算优先）
+                        const pnlA = xA.pnlValid ? xA.pnl : -Infinity;
+                        const pnlB = xB.pnlValid ? xB.pnl : -Infinity;
                         return pnlB - pnlA;
 
-                    case 'pnlPercent': // 按收益率排序
-                        const mA = Number(pA.initialMargin != null ? pA.initialMargin : pA.margin) || 1;
-                        const mB = Number(pB.initialMargin != null ? pB.initialMargin : pB.margin) || 1;
-                        const roeA = pA.unRealizedProfit != null ? (Number(pA.unRealizedProfit) / mA) * 100 : -Infinity;
-                        const roeB = pB.unRealizedProfit != null ? (Number(pB.unRealizedProfit) / mB) * 100 : -Infinity;
+                    case 'pnlPercent': // 按收益率排序（即时未实现 ÷ 最新初始保证金）
+                        const roeA = Number.isFinite(xA.roe) ? xA.roe : -Infinity;
+                        const roeB = Number.isFinite(xB.roe) ? xB.roe : -Infinity;
                         return roeB - roeA;
 
-                    case 'dayChange': // 按今日涨跌排序
-                        const markA = subMarkPrice(symbolA, pA);
-                        const markB = subMarkPrice(symbolB, pB);
-                        const entryA = Number(pA.entryPrice) || 1;
-                        const entryB = Number(pB.entryPrice) || 1;
-                        const changeA = ((markA - entryA) / entryA) * 100;
-                        const changeB = ((markB - entryB) / entryB) * 100;
-                        return changeB - changeA;
+                    case 'dayChange': // 按今日涨跌排序（当日开盘→最新价）
+                        const dA = dayChangePct(symbolA, xA.mark);
+                        const dB = dayChangePct(symbolB, xB.mark);
+                        return (Number.isFinite(dB) ? dB : -Infinity) - (Number.isFinite(dA) ? dA : -Infinity);
 
                     case 'name': // 按名称排序
                         const cfgA = subPositionConfig(symbolA, pA);
@@ -4203,8 +4243,7 @@
             console.log('✅ 开始渲染子账户，持仓数量:', Object.keys(live.positions||{}).length);
 
             const a=live.account||{}, ps=live.positions||{}, keys=Object.keys(ps).sort(getSubSortComparator(subSortMode, ps)), fmt=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'--';
-            // 标记价与主账户统一：同标的一律用主账户的实时行情价，回退到子账户快照价
-            const subMarkPrice=function(symbol,snapshot){const lv=Number(priceData[symbol]);return Number.isFinite(lv)&&lv>0?lv:Number(snapshot)||0;};
+            // 标记价 / 未实现 / ROE：走共享 subMarkPrice + subPositionNumbers（有最新行情时即时验算）
             // 主账户有持仓、子账户没有的同类产品：只列占位，不显示任何持仓数据
             const missing=Object.keys(POSITIONS).filter(function(s){return !(s in ps);});
             const emptyCardsHtml=missing.map(function(symbol){
@@ -4213,11 +4252,12 @@
                 return `<div class="position-card pc-empty" title="${escHtml(symbol)} · 子账户未持仓"><div class="pc-head"><span class="pc-name">${escHtml(name)}</span><span class="pc-empty-tag">未持仓</span></div><div class="pc-empty-note">主账户已持有 · 子账户暂无此产品</div></div>`;
             }).join('');
             grid.innerHTML=(keys.length?keys.map(function(symbol){const p=ps[symbol],c=subPositionConfig(symbol,p);
-                const mUsdt=Number(p.initialMargin!=null?p.initialMargin:p.margin)||0;
-                const mark=subMarkPrice(symbol,p.markPrice);
-                const entry=Number(p.entryPrice)||0, qty=Math.abs(Number(p.quantity)||0);
-                const pnl=p.unRealizedProfit==null?NaN:Number(p.unRealizedProfit), hasPnl=Number.isFinite(pnl), cls=!hasPnl?'card-neutral':pnl>0?'card-up':pnl<0?'card-down':'card-neutral';
-                const roe=(hasPnl&&mUsdt>0)?(pnl/mUsdt)*100:NaN, roeCls=!Number.isFinite(roe)?'neutral':roe>0?'positive':roe<0?'negative':'neutral', roeText=Number.isFinite(roe)?(roe>0?'+':'')+roe.toFixed(2)+'%':'--';
+                const x=subPositionNumbers(symbol,p)||{};
+                const mUsdt=x.initM||0;
+                const mark=x.markValid?x.mark:0;
+                const entry=x.entry||0;
+                const pnl=x.pnl, hasPnl=!!x.pnlValid, cls=!hasPnl?'card-neutral':pnl>0?'card-up':pnl<0?'card-down':'card-neutral';
+                const roe=x.roe, roeCls=!Number.isFinite(roe)?'neutral':roe>0?'positive':roe<0?'negative':'neutral', roeText=Number.isFinite(roe)?(roe>0?'+':'')+roe.toFixed(2)+'%':'--';
                 const rpV=p.realizedPnl==null?NaN:Number(p.realizedPnl), feeV=p.feePaid==null?NaN:Number(p.feePaid), frV=p.feeRate==null?NaN:Number(p.feeRate), fuV=p.fundingFee==null?NaN:Number(p.fundingFee);
                 const sgnF=function(v){if(!Number.isFinite(v))return '--';if(v===0)return '0.0000';return (v>0?'+':'-')+Math.abs(v).toFixed(4);};
                 const rpT=sgnF(rpV), feeT=sgnF(feeV), frT=(Number.isFinite(frV)&&frV>0)?(frV*100).toFixed(4)+'%':'--';
@@ -4246,7 +4286,25 @@
             if(detail) detail.style.display='none';
             renderSubaccount();
         }
-        function showSubaccountDetail(symbol){const live=window.__BINANCE_SUBACCOUNT__,p=live&&live.positions&&live.positions[symbol];if(!p)return;const c=subPositionConfig(symbol,p),pnl=p.unRealizedProfit==null?NaN:Number(p.unRealizedProfit);const markPrice=Number(p.markPrice)||0;const quantity=Number(c.quantity)||0;const positionValue=markPrice*quantity;activeSubaccountSymbol=symbol;document.getElementById('subaccountHome').style.display='none';document.getElementById('subaccountDetail').style.display='block';document.getElementById('subDetailTitle').textContent=c.name+' · 子账户持仓详情';document.getElementById('subDetailMetrics').innerHTML=`<div class="detail-metric"><span>未实现盈亏(API)</span><strong class="${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(Number.isFinite(pnl)?pnl:NaN,2,true)}</strong></div><div class="detail-metric"><span>当前标记价</span><strong>${markPrice.toFixed(2)}</strong></div><div class="detail-metric"><span>方向 / 杠杆</span><strong>${c.side==='short'?'空头':'多头'} · ${c.leverage}x</strong></div>`;document.getElementById('subDetailRisk').innerHTML=`产品：${escHtml(c.full)}<br>开仓价：${Number(c.entryPrice).toFixed(2)} · <strong>持仓数量：${quantity.toFixed(4)}</strong> · <strong>持仓价值：${positionValue.toFixed(2)} USDT</strong> ${Number.isFinite(positionValue)?'（'+cnyOnly(positionValue)+'）':''} · 名义价值(API)：${usdtCny(p.notional)}<br>未实现盈亏(API)：${p.unRealizedProfit!=null&&Number.isFinite(Number(p.unRealizedProfit))?usdtCny(Number(p.unRealizedProfit),2,true):'-- USDT（¥--）'}<br>强平价(API)：${Number(c.liqPrice)>0?Number(c.liqPrice).toFixed(2):'--'} · 保证金模式：${escHtml(c.mode)}`;}
+        function showSubaccountDetail(symbol){
+            const live=window.__BINANCE_SUBACCOUNT__,p=live&&live.positions&&live.positions[symbol];
+            if(!p)return;
+            const c=subPositionConfig(symbol,p);
+            const x=subPositionNumbers(symbol,p)||{};
+            const pnl=x.pnlValid?x.pnl:NaN;
+            const markPrice=x.markValid?x.mark:0;
+            const quantity=Number(c.quantity)||0;
+            const positionValue=markPrice*quantity;
+            const roe=x.roe;
+            const roeText=Number.isFinite(roe)?((roe>0?'+':'')+roe.toFixed(2)+'%'):'--';
+            const roeCls=!Number.isFinite(roe)?'neutral':roe>0?'positive':roe<0?'negative':'neutral';
+            activeSubaccountSymbol=symbol;
+            document.getElementById('subaccountHome').style.display='none';
+            document.getElementById('subaccountDetail').style.display='block';
+            document.getElementById('subDetailTitle').textContent=c.name+' · 子账户持仓详情';
+            document.getElementById('subDetailMetrics').innerHTML=`<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(Number.isFinite(pnl)?pnl:NaN,2,true)}</strong></div><div class="detail-metric"><span>当前标记价</span><strong>${markPrice>0?markPrice.toFixed(2):'--'}</strong></div><div class="detail-metric"><span>收益率 ROE</span><strong class="${roeCls}">${roeText}</strong></div><div class="detail-metric"><span>方向 / 杠杆</span><strong>${c.side==='short'?'空头':'多头'} · ${c.leverage}x</strong></div>`;
+            document.getElementById('subDetailRisk').innerHTML=`产品：${escHtml(c.full)}<br>开仓价：${Number(c.entryPrice).toFixed(2)} · <strong>持仓数量：${quantity.toFixed(4)}</strong> · <strong>持仓价值：${Number.isFinite(positionValue)&&markPrice>0?positionValue.toFixed(2):'--'} USDT</strong> ${Number.isFinite(positionValue)&&markPrice>0?'（'+cnyOnly(positionValue)+'）':''} · 初始保证金(API)：${usdtCny(x.initM)} · 名义价值(API)：${usdtCny(p.notional)}<br>未实现盈亏（有行情时即时验算）：${Number.isFinite(pnl)?usdtCny(pnl,2,true):'--'} · 快照未实现(API)：${p.unRealizedProfit!=null&&Number.isFinite(Number(p.unRealizedProfit))?usdtCny(Number(p.unRealizedProfit),2,true):'--'}<br>强平价(API)：${Number(c.liqPrice)>0?Number(c.liqPrice).toFixed(2):'--'} · 保证金模式：${escHtml(c.mode)}`;
+        }
 
         async function refreshSubaccount(){ await loadSubaccountScript(); renderSubaccount(); }
         function startSubaccountLoader(){ refreshSubaccount(); if(subaccountTimer)clearInterval(subaccountTimer); subaccountTimer=setInterval(refreshSubaccount,5000); }
@@ -4449,15 +4507,24 @@
                 return;
             }
             if (!acc) {
-                el.innerHTML = `<span class="lab-muted">持仓同步：等待 positions_live.js …（请先运行「启动持仓同步.bat」）</span>`;
+                el.innerHTML = `<span class="lab-muted">持仓同步：等待自动同步写入 positions_live.js …（登录后后台已自启，请稍候）</span>`;
                 return;
             }
             const flatNote = liveFlat ? ' · <span class="lab-err">API 显示当前空仓，表格仍展示本地静态快照</span>' : '';
             let staleNote = '';
             if (acc && liveSyncMeta.updatedAt) {
                 const age = (Date.now() - new Date(liveSyncMeta.updatedAt).getTime()) / 1000;
-                if (Number.isFinite(age) && age > 30) staleNote = ` · <span class="lab-err">数据已 ${Math.round(age)} 秒未更新，请检查后台同步是否在运行</span>`;
+                if (Number.isFinite(age) && age > 30) {
+                    staleNote = ` · <span class="lab-err">数据已 ${Math.round(age)} 秒未更新，请检查后台同步是否在跑</span>`;
+                    try {
+                        const host = (location && location.hostname) || '';
+                        if (/github\.io$/i.test(host) || (age > 300 && /^https?:$/i.test(location.protocol || ''))) {
+                            staleNote += ` · <span class="lab-err">若打开的是 GitHub Pages：本地 sync 只写磁盘、不自动推送，线上页会停在旧快照；请打开桌面目录本地 HTML（file://）才能跟 positions_live.js 实时刷新</span>`;
+                        }
+                    } catch (e) {}
+                }
             }
+
             const n = Object.keys((window.__BINANCE_LIVE__ && window.__BINANCE_LIVE__.positions) || {}).length;
             const wallet = Number(acc.totalWalletBalance != null ? acc.totalWalletBalance : acc.walletBalance) || 0;
             const upnl = Number(acc.totalUnrealizedProfit);
@@ -4515,11 +4582,12 @@
             liveLoaderTimer = setInterval(refreshLivePositions, 5000);
         }
 
-        // 币安 U本位合约公开行情接口。直连被墙时走本地中转（127.0.0.1:8788，经系统代理转发）。
+        // 币安 U本位合约公开行情接口。优先直连；8788 仅可选回退（不再要求启动 bat）。
+        // 优先直连币安；8788 仅作可选回退（不再要求用户启动 bat）
         const REST_URLS = [
-            'http://127.0.0.1:8788/fapi/v1/premiumIndex',
             'https://fapi.binance.com/fapi/v1/premiumIndex',
-            'https://www.binance.com/fapi/v1/premiumIndex'
+            'https://www.binance.com/fapi/v1/premiumIndex',
+            'http://127.0.0.1:8788/fapi/v1/premiumIndex'
         ]; // 返回标记价，与币安 APP 盈亏口径一致
         let socket = null;
         let reconnectTimer = null;
@@ -4594,7 +4662,7 @@
             } catch (error) {
                 if (activeGeneration !== generation) return;
                 lastError = error.name === 'AbortError' ? '请求超时' :
-                    (error instanceof TypeError ? '无法连接行情源：请先双击 C:\\Users\\A\\binance_relay\\start_all.bat 启动本地行情中转' : friendlyApiError(error.message));
+                    (error instanceof TypeError ? '无法连接行情源：请确认网络/VPN 可用（后台同步会自动重试）' : friendlyApiError(error.message));
             } finally {
                 clearTimeout(timeout);
                 if (requestController === controller) requestController = null;
@@ -4640,17 +4708,17 @@
             const note = document.getElementById('cnyRateNote');
             // 多个数据源备用，提高稳定性
             const sources = [
-                // 1. 本地中转（最快）
-                {
-                    url: 'http://127.0.0.1:8788/c2c/v1/public/c2c/agent/quote-price?fiat=CNY&asset=USDT&tradeType=SELL',
-                    name: '币安C2C本地',
-                    parse: (data) => Number(data?.data?.price),
-                    isJson: true
-                },
-                // 2. 币安直连
+                // 1. 币安直连
                 {
                     url: 'https://www.binance.com/bapi/c2c/v1/public/c2c/agent/quote-price?fiat=CNY&asset=USDT&tradeType=SELL',
                     name: '币安C2C',
+                    parse: (data) => Number(data?.data?.price),
+                    isJson: true
+                },
+                // 2. 本地中转（可选回退，不要求用户启动）
+                {
+                    url: 'http://127.0.0.1:8788/c2c/v1/public/c2c/agent/quote-price?fiat=CNY&asset=USDT&tradeType=SELL',
+                    name: '币安C2C本地',
                     parse: (data) => Number(data?.data?.price),
                     isJson: true
                 },
@@ -4712,7 +4780,7 @@
             }
 
             // 所有API都失败
-            const hint = '；若提示网络不可达，双击桌面启动器重启中转服务';
+            const hint = '；若持续失败请检查网络/VPN，后台同步会自动重试';
             if (note) note.textContent = Number.isFinite(CNY_RATE)
                 ? `使用上次汇率 ${CNY_RATE.toFixed(4)} CNY/USDT（刷新失败：${lastErr}${hint}）`
                 : `所有汇率源不可用（${lastErr}${hint}），人民币显示 --`;
@@ -4823,10 +4891,22 @@
             const price = quoteValid ? quotePrice : (Number.isFinite(apiMarkPrice) && apiMarkPrice > 0 ? apiMarkPrice : 0);
             const priceValid = price > 0;
             const initM = Number(config.initialMargin != null ? config.initialMargin : config.margin) || 0;
-            const pnlUsdt = config.unRealizedProfit == null ? NaN : Number(config.unRealizedProfit);
+            const entry = Number(config.entryPrice) || 0;
+            const amt = (config.positionAmt != null && Number.isFinite(Number(config.positionAmt)))
+                ? Number(config.positionAmt)
+                : ((config.side === 'short' ? -1 : 1) * Math.abs(Number(config.quantity) || 0));
+            const apiPnl = config.unRealizedProfit == null ? NaN : Number(config.unRealizedProfit);
+            // 未实现：有有效标记价时按 (mark-entry)*positionAmt 即时验算（空头 amt 为负），
+            // 与图内标记价同屏一致；避免 WS 已涨过建仓价、同步快照仍是旧亏损。
+            // ROE = 即时未实现 ÷ 最新 sync 的 initialMargin（positionInitialMargin）。
+            // 建仓价/保证金/爆仓价/手续费/资金费等仍以最近一次成功 sync 的 API 字段为准。
+            let pnlUsdt = apiPnl;
+            if (priceValid && entry > 0 && Number.isFinite(amt) && amt !== 0) {
+                pnlUsdt = (price - entry) * amt;
+            }
             const pnlValid = Number.isFinite(pnlUsdt);
-            return { config:config, valid:pnlValid, quoteValid:quoteValid, priceValid:priceValid, price:price, initM:initM, pnlUsdt:pnlUsdt,
-                changePercent:priceValid && config.entryPrice ? ((price-config.entryPrice)/config.entryPrice)*100 : 0,
+            return { config:config, valid:pnlValid, quoteValid:quoteValid, priceValid:priceValid, price:price, initM:initM, pnlUsdt:pnlUsdt, apiPnl:apiPnl, positionAmt:amt,
+                changePercent:priceValid && entry ? ((price-entry)/entry)*100 : 0,
                 alert:priceValid ? checkAlert(price, config.stopLoss, config.takeProfit, config.side) : { text:'暂无有效行情', class:'neutral' } };
         }
 
@@ -4950,7 +5030,7 @@
 
             document.getElementById('detailRisk').innerHTML = `方向：<strong>${c.side === 'short' ? '空头' : '多头'}</strong> · 模式：${escHtml((MODE_META[c.mode] || MODE_META.isolated).text)} · 杠杆：${c.leverage}x<br>
                 开仓价：${Number(c.entryPrice).toFixed(2)} · <strong>持仓数量：${Number(c.quantity).toFixed(4)}</strong> · <strong>持仓价值：${positionValueUsdt} USDT</strong> ${Number.isFinite(positionValue) ? '（'+cnyOnly(positionValue)+'）' : ''} · 初始保证金：${usdtCny(x.initM || c.margin)}<br>
-                当前浮盈/亏(API)：${usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true)} · 逐仓保证金(API)：${c.mode === 'isolated' && Number.isFinite(Number(c.isolatedMargin)) ? usdtCny(c.isolatedMargin) : '--'}<br>
+                当前浮盈/亏（有行情时即时验算）：${usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true)} · ROE：${(x.valid && x.initM > 0) ? ((((x.pnlUsdt / x.initM) * 100) > 0 ? '+' : '') + ((x.pnlUsdt / x.initM) * 100).toFixed(2) + '%') : '--'} · 逐仓保证金(API)：${c.mode === 'isolated' && Number.isFinite(Number(c.isolatedMargin)) ? usdtCny(c.isolatedMargin) : '--'}<br>
                 止损价：${Number(c.stopLoss).toFixed(2)} · 止盈价：${Number(c.takeProfit).toFixed(2)} · 爆仓价(API)：${Number.isFinite(liq)?liq.toFixed(2):'--'}<br>
                 <span style="color:var(--muted);">详情页数据随实时行情刷新；新闻和时间表复用页面内置事件库，需联网的外部新闻接口不可用时仍可查看已整理大事。</span>`;
         }
@@ -4966,8 +5046,12 @@
             document.getElementById('detailBinanceLink').innerHTML = '币安产品：<a href="' + binanceUrl + '" target="_blank" rel="noopener noreferrer">打开 ' + escHtml(symbol) + ' 合约页面 ↗</a>';
             document.getElementById('detailSub').textContent = c.full + ' · 近一个月价格以日线收盘价归一到一个月前';
             const pnlCls = !x.valid ? 'neutral' : x.pnlUsdt > 0 ? 'positive' : x.pnlUsdt < 0 ? 'negative' : 'neutral';
-            document.getElementById('detailMetrics').innerHTML = `<div class="detail-metric"><span>未实现盈亏(API)</span><strong class="${pnlCls}">${usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true)}</strong></div>
-                <div class="detail-metric"><span>当前标记价</span><strong>${x.priceValid ? x.price.toFixed(2) : '--'}</strong></div>`;
+            const _roe = (x.valid && x.initM > 0) ? (x.pnlUsdt / x.initM) * 100 : NaN;
+            const _roeCls = !Number.isFinite(_roe) ? 'neutral' : _roe > 0 ? 'positive' : _roe < 0 ? 'negative' : 'neutral';
+            const _roeText = Number.isFinite(_roe) ? ((_roe > 0 ? '+' : '') + _roe.toFixed(2) + '%') : '--';
+            document.getElementById('detailMetrics').innerHTML = `<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnlCls}">${usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true)}</strong></div>
+                <div class="detail-metric"><span>当前标记价</span><strong>${x.priceValid ? x.price.toFixed(2) : '--'}</strong></div>
+                <div class="detail-metric"><span>收益率 ROE</span><strong class="${_roeCls}">${_roeText}</strong></div>`;
             detailChartEvents = relatedEvents(c, false).concat(relatedEvents(c, true)).sort(function(a,b){ return new Date(a.d)-new Date(b.d); });
             renderEventList('detailNews', relatedEvents(c, false), '暂无匹配的近期大事');
             renderEventList('detailCalendar', relatedEvents(c, true), '暂无匹配的未来事件');
@@ -5015,9 +5099,9 @@
             if (detailChartCache[symbol]) { drawDetailChart(symbol, detailChartCache[symbol]); return; }
             box.innerHTML='<div class="chart-loading">正在读取近一个月日线…</div>';
             const endpoints = [
-                'http://127.0.0.1:8788/fapi/v1/klines',
                 'https://fapi.binance.com/fapi/v1/klines',
-                'https://www.binance.com/fapi/v1/klines'
+                'https://www.binance.com/fapi/v1/klines',
+                'http://127.0.0.1:8788/fapi/v1/klines'
             ];
             let lastError = '行情接口不可达';
             try {
@@ -5055,10 +5139,11 @@
             const tbody = document.getElementById('priceTable');
             tbody.innerHTML = '';
             for (const [symbol, config] of Object.entries(POSITIONS)) {
-                const currentPrice = Number(priceData[symbol]);
+                const xRow = positionNumbers(symbol) || {};
+                const currentPrice = Number(xRow.priceValid ? xRow.price : priceData[symbol]);
                 const hasPrice = Number.isFinite(currentPrice) && currentPrice > 0;
                 const initM = Number(config.initialMargin != null ? config.initialMargin : config.margin) || 0;
-                const pnlUsdt = config.unRealizedProfit == null ? NaN : Number(config.unRealizedProfit);
+                const pnlUsdt = xRow.pnlUsdt;
                 const hasApiPnl = Number.isFinite(pnlUsdt);
                 const apiIsolatedMargin = config.mode === 'isolated' && config.isolatedMargin != null ? Number(config.isolatedMargin) : NaN;
                 const pnlClass = !hasApiPnl ? 'neutral' : pnlUsdt > 0 ? 'positive' : pnlUsdt < 0 ? 'negative' : 'neutral';
@@ -5084,7 +5169,7 @@
                     '<td>' + (hasPrice ? '<strong>' + currentPrice.toFixed(2) + '</strong>' : '--') + '</td>' +
                     '<td class="' + changeClass + '">' + (Number.isFinite(changePercent) ? (changePercent > 0 ? '+' : '') + changePercent.toFixed(2) + '%' : '--') + '</td>' +
                     '<td class="' + pnlClass + '"><span class="icon">' + pnlIcon + '</span>' + usdtCny(hasApiPnl ? pnlUsdt : NaN, 2, true) + '</td>' +
-                    '<td class="neutral" title="API 未提供 ROE">--</td>' +
+                    '<td class="' + (Number.isFinite((hasApiPnl && initM > 0) ? (pnlUsdt / initM) * 100 : NaN) ? pnlClass : 'neutral') + '" title="未实现÷初始保证金（有行情时即时验算）">' + (hasApiPnl && initM > 0 ? (((pnlUsdt / initM) * 100 > 0 ? '+' : '') + ((pnlUsdt / initM) * 100).toFixed(2) + '%') : '--') + '</td>' +
                     '<td class="' + (Number.isFinite(apiIsolatedMargin) ? pnlClass : 'neutral') + '" title="' + eqTip + '">' + (Number.isFinite(apiIsolatedMargin) ? usdtCny(apiIsolatedMargin) : '-- USDT（¥--）') + '</td>' +
                     '<td>' + Number(config.stopLoss).toFixed(2) + '</td><td>' + Number(config.takeProfit).toFixed(2) + '</td>' +
                     '<td class="' + (Number.isFinite(liqDistance) && liqDistance < 10 ? 'negative' : '') + '" title="' + (Number.isFinite(liqDistance) ? '距爆仓线 ' + liqDistance.toFixed(1) + '%' : 'API 未提供爆仓价或等待有效行情') + '">' + (Number.isFinite(liqPrice) ? liqPrice.toFixed(2) : '--') + ' <span style="color:var(--muted);font-size:10px;">' + liqDistanceText + '</span></td>' +
@@ -5133,10 +5218,16 @@
             if (activeDetailSymbol && POSITIONS[activeDetailSymbol]) {
                 const x = positionNumbers(activeDetailSymbol);
                 const pnlCls = !x.valid ? 'neutral' : x.pnlUsdt > 0 ? 'positive' : x.pnlUsdt < 0 ? 'negative' : 'neutral';
-                document.getElementById('detailMetrics').innerHTML = '<div class="detail-metric"><span>未实现盈亏(API)</span><strong class="' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</strong></div>' +
+                const roe = (x.valid && x.initM > 0) ? (x.pnlUsdt / x.initM) * 100 : NaN;
+                const roeCls = !Number.isFinite(roe) ? 'neutral' : roe > 0 ? 'positive' : roe < 0 ? 'negative' : 'neutral';
+                const roeText = Number.isFinite(roe) ? ((roe > 0 ? '+' : '') + roe.toFixed(2) + '%') : '--';
+                document.getElementById('detailMetrics').innerHTML = '<div class="detail-metric"><span>未实现盈亏</span><strong class="' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</strong></div>' +
                     '<div class="detail-metric"><span>当前标记价</span><strong>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</strong></div>' +
-                    '<div class="detail-metric"><span>收益率 ROE</span><strong class="neutral">API 未提供</strong></div>';
+                    '<div class="detail-metric"><span>收益率 ROE</span><strong class="' + roeCls + '">' + roeText + '</strong></div>';
                 renderRiskDetail(x);
+            }
+            if (activeSubaccountSymbol) {
+                try { showSubaccountDetail(activeSubaccountSymbol); } catch (e) {}
             }
         }
 
@@ -5183,11 +5274,11 @@
         }
 
         function fetchSpotDaily(symbol, interval, limit) {
-            return tryHosts(['http://127.0.0.1:8788/api/v3/klines', 'https://api.binance.com/api/v3/klines', 'https://www.binance.com/api/v3/klines'], symbol, interval, limit);
+            return tryHosts(['https://api.binance.com/api/v3/klines', 'https://www.binance.com/api/v3/klines', 'http://127.0.0.1:8788/api/v3/klines'], symbol, interval, limit);
         }
 
         function fetchFuturesDaily(symbol, interval, limit) {
-            return tryHosts(['http://127.0.0.1:8788/fapi/v1/klines', 'https://fapi.binance.com/fapi/v1/klines', 'https://www.binance.com/fapi/v1/klines'], symbol, interval, limit);
+            return tryHosts(['https://fapi.binance.com/fapi/v1/klines', 'https://www.binance.com/fapi/v1/klines', 'http://127.0.0.1:8788/fapi/v1/klines'], symbol, interval, limit);
         }
 
         async function fetchHyperliquidDaily(coin, interval, daysBack, keep) {
@@ -5195,7 +5286,7 @@
             const now = Date.now();
             const body = JSON.stringify({ type: 'candleSnapshot', req: { coin: coin, interval: interval, startTime: now - daysBack * 24 * 3600 * 1000, endTime: now } });
             let err = 'Hyperliquid 接口不可达';
-            const hosts = ['http://127.0.0.1:8788/hl', 'https://api.hyperliquid.xyz/info', 'https://api-ui.hyperliquid.xyz/info'];
+            const hosts = ['https://api.hyperliquid.xyz/info', 'https://api-ui.hyperliquid.xyz/info', 'http://127.0.0.1:8788/hl'];
             for (const h of hosts) {
                 try {
                     const raw = await fetchJsonWithTimeout(h, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body }, 12000);
@@ -5388,8 +5479,8 @@
         // 图表默认周期（用户要求默认看周线）：改这里即可，例如 '1h' / '1d'
         const DEFAULT_CHART_INTERVAL = '1w';
         // 美股正股卡片自己的周期档位（新浪只有日线，周线/月线由日线本地聚合）
-        // 美股卡周期与币安卡同款 7 档：分钟线走东财（经本地中转），日线/周线仍用新浪全历史
-        const US_CHART_INTERVALS = [['5m', '5分'], ['15m', '15分'], ['30m', '30分'], ['1h', '1小时'], ['4h', '4小时'], ['1d', '日线'], ['1w', '周线']];
+        // 美股卡周期 8 档：分钟线走东财；日线/周线用新浪近三年；月线优先东财全历史（上市至今）
+        const US_CHART_INTERVALS = [['5m', '5分'], ['15m', '15分'], ['30m', '30分'], ['1h', '1小时'], ['4h', '4小时'], ['1d', '日线'], ['1w', '周线'], ['1M', '月线']];
         const US_CHART_STEP = { '60m': 3600, '1d': 86400, '1w': 604800, '1M': 2592000 };
 
         /* ============================================================
@@ -5431,27 +5522,141 @@
             return pick ? pick.time : null;
         }
 
+        // 把「已是图内时间轴秒」对齐到某根 K 线开盘；无对应 bar（休市）则返回 null
+        function matchChartBarTime(rows, chartSec, iv) {
+            if (!Array.isArray(rows) || !rows.length || !Number.isFinite(chartSec)) return null;
+            const step = ENTRY_CHART_STEP[iv] || 3600;
+            const target = Math.floor(chartSec / step) * step;
+            if (target < rows[0].time) return null;
+            if (target > rows[rows.length - 1].time + step) return null;
+            let pick = null;
+            for (let i = 0; i < rows.length; i++) {
+                if (rows[i].time <= target) pick = rows[i]; else break;
+            }
+            if (!pick) return null;
+            // 开盘时刻必须落在该 bar 的时间桶内，避免周末/假日硬贴到前一根
+            if (!(target >= pick.time && target < pick.time + step)) return null;
+            return pick.time;
+        }
+
+        // 收集图内「美股开盘」标记时间（美东 09:30；夏令→北京 21:30，冬令→22:30）
+        // 日线/周线不标，避免刷屏；仅当该交易日确有对应 bar 才标
+        function usOpenMarkerTimes(rows, iv) {
+            if (!Array.isArray(rows) || !rows.length) return [];
+            if (iv === '1d' || iv === '1w' || iv === '1M') return [];
+            const tStart = (rows[0].time - CHART_TZ_SHIFT) * 1000;
+            const tEnd = (rows[rows.length - 1].time - CHART_TZ_SHIFT) * 1000;
+            if (!Number.isFinite(tStart) || !Number.isFinite(tEnd)) return [];
+            const dateMap = {};
+            for (let t = tStart - 86400000; t <= tEnd + 86400000; t += 6 * 3600000) {
+                try { dateMap[usETDate(t)] = 1; } catch (e) {}
+            }
+            const out = [];
+            const seen = {};
+            Object.keys(dateMap).sort().forEach(function (ds) {
+                const y = Number(String(ds).slice(0, 4));
+                const m = Number(String(ds).slice(5, 7));
+                const d = Number(String(ds).slice(8, 10));
+                if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return;
+                const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+                if (wd === 0 || wd === 6) return;
+                const openMs = Date.parse(ds + 'T09:30:00' + usETOffsetStr(ds));
+                if (!Number.isFinite(openMs)) return;
+                // 币安图已 +8h；美股分钟图东财时间按北京-as-UTC 进图，与 CHART_TZ_SHIFT 口径一致
+                const chartSec = Math.floor(openMs / 1000) + CHART_TZ_SHIFT;
+                const bt = matchChartBarTime(rows, chartSec, iv);
+                if (bt == null || seen[bt]) return;
+                seen[bt] = 1;
+                out.push(bt);
+            });
+            return out;
+        }
+
+        // 美股开盘竖线 overlay（LWC v4.2.3 setMarkers 无竖线；随 timeScale 滚动用 timeToCoordinate 对齐）
+        function ensureUsOpenVlineLayer(st) {
+            if (!st || !st.body) return null;
+            try { st.body.style.position = 'relative'; } catch (e) {}
+            if (st._usOpenLayer && st._usOpenLayer.isConnected) return st._usOpenLayer;
+            const layer = document.createElement('div');
+            layer.className = 'us-open-vlines';
+            st.body.appendChild(layer);
+            st._usOpenLayer = layer;
+            if (!st._usOpenSub && st.chart) {
+                st._usOpenSub = function () { syncUsOpenVlinePositions(st); };
+                try { st.chart.timeScale().subscribeVisibleLogicalRangeChange(st._usOpenSub); } catch (e) {}
+                try { st.chart.timeScale().subscribeVisibleTimeRangeChange(st._usOpenSub); } catch (e) {}
+            }
+            return layer;
+        }
+
+        function syncUsOpenVlinePositions(st) {
+            if (!st || !st.chart || !st._usOpenLayer) return;
+            const ts = st.chart.timeScale();
+            const kids = st._usOpenLayer.children;
+            for (let i = 0; i < kids.length; i++) {
+                const el = kids[i];
+                const t = Number(el.getAttribute('data-t'));
+                let x = null;
+                try { x = ts.timeToCoordinate(t); } catch (e) { x = null; }
+                if (x == null || !Number.isFinite(x)) {
+                    el.style.display = 'none';
+                } else {
+                    el.style.display = 'block';
+                    el.style.left = Math.round(x) + 'px';
+                }
+            }
+        }
+
+        function updateUsOpenVlines(st, iv) {
+            if (!st || !st.chart || !st.body) return;
+            const useIv = iv || st.interval;
+            let times = [];
+            try { times = usOpenMarkerTimes(st.rows, useIv); } catch (e) { times = []; }
+            st._usOpenTimes = times;
+            const layer = ensureUsOpenVlineLayer(st);
+            if (!layer) return;
+            const key = times.join(',');
+            if (st._usOpenTimesKey !== key) {
+                st._usOpenTimesKey = key;
+                layer.innerHTML = '';
+                times.forEach(function (t) {
+                    const el = document.createElement('div');
+                    el.className = 'us-open-vline';
+                    el.setAttribute('data-t', String(t));
+                    layer.appendChild(el);
+                });
+            }
+            syncUsOpenVlinePositions(st);
+        }
+
         function applyEntryMarker(st, iv) {
             if (!st || !st.series) return;
             try { st.series.setMarkers([]); } catch (e) {}
-            const info = entryTimeInfo(st.acct, st.symbol);
-            if (!info) return;
-            const bt = entryBarTime(st.rows, Number(info.t), iv || st.interval);
-            if (bt == null) return;
+            const useIv = iv || st.interval;
             const pal = lwcPalette();
-            const isLong = info.side !== 'short';
-            try {
-                st.series.setMarkers([{
-                    time: bt,
-                    position: isLong ? 'belowBar' : 'aboveBar',
-                    color: pal.amber,
-                    shape: isLong ? 'arrowUp' : 'arrowDown',
-                    size: 1,
-                    text: '建仓 ' + (info.short || info.local || '')
-                }]);
-            } catch (e) {}
+            const markers = [];
+            // 美股开盘：不再用蓝圆点；改画淡蓝虚竖线（见 updateUsOpenVlines）
+            try { updateUsOpenVlines(st, useIv); } catch (e) {}
+            // 建仓琥珀箭头保留（仅 markers；开盘竖线走 overlay，互不覆盖）
+            const info = entryTimeInfo(st.acct, st.symbol);
+            if (info) {
+                const bt = entryBarTime(st.rows, Number(info.t), useIv);
+                if (bt != null) {
+                    const isLong = info.side !== 'short';
+                    markers.push({
+                        time: bt,
+                        position: isLong ? 'belowBar' : 'aboveBar',
+                        color: pal.amber,
+                        shape: isLong ? 'arrowUp' : 'arrowDown',
+                        size: 1,
+                        text: '建仓 ' + (info.short || info.local || '')
+                    });
+                }
+            }
+            if (!markers.length) return;
+            markers.sort(function (a, b) { return a.time - b.time; });
+            try { st.series.setMarkers(markers); } catch (e) {}
         }
-
         function refreshAllEntryMarkers() {
             try {
                 Object.keys(MINI_CHART.pool).forEach(function (k) {
@@ -5678,10 +5883,10 @@
 
         /* ---------- 美股分钟 K（东财 push2his，独立追加） ----------
            东财支持美股 5/15/30/60 分钟线（4小时由 60 分钟聚合）。
-           本机直连 push2his 不可达，浏览器优先走本地中转 /em/（relay 经系统代理转发），
+           本机直连 push2his 不可达时可选走本地中转 /em/（若未运行则自动跳过，不弹 bat 提示），
            失败再试直连（在能直连东财的网络环境下可用）。 */
-        const US_EM_KLT = { '5m': 5, '15m': 15, '30m': 30, '1h': 60 };
-        const US_EM_LMT = { '5m': 300, '15m': 300, '30m': 320, '1h': 420 };
+        const US_EM_KLT = { '5m': 5, '15m': 15, '30m': 30, '1h': 60, '1d': 101, '1w': 102, '1M': 103 };
+        const US_EM_LMT = { '5m': 300, '15m': 300, '30m': 320, '1h': 420, '1d': 10000, '1w': 3000, '1M': 600 };
         // 东财分钟线的时间串是北京时间；按 UTC 解析进图，图表会原样显示这串时间，
         // 与币安图「+8h 平移后显示北京时间」的口径一致
         function parseEmTime(s) { const t = Date.parse(String(s || '').replace(' ', 'T') + 'Z'); return Number.isFinite(t) ? t : NaN; }
@@ -5706,34 +5911,35 @@
         }
         async function fetchEmKlines(secid, interval) {
             const klt = US_EM_KLT[interval];
-            if (!secid || !klt) throw new Error('该标的/周期暂无分钟线数据源');
+            if (!secid || !klt) throw new Error('该标的/周期暂无 K 线数据源');
             const lmt = US_EM_LMT[interval] || 400;
             // 外盘期货（101. 开头）不支持前复权，必须 fqt=0，否则返回空
             const fqt = (String(secid).indexOf('101.') === 0) ? 0 : 1;
             const qs = '?secid=' + encodeURIComponent(secid) + '&klt=' + klt + '&fqt=' + fqt + '&lmt=' + lmt +
                 '&end=20500101&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56';
             const urls = [
-                'http://127.0.0.1:8788/em/api/qt/stock/kline/get' + qs,
-                'https://push2his.eastmoney.com/api/qt/stock/kline/get' + qs
+                'https://push2his.eastmoney.com/api/qt/stock/kline/get' + qs,
+                'http://127.0.0.1:8788/em/api/qt/stock/kline/get' + qs
             ];
-            let lastErr = '分钟线数据源不可达';
+            let lastErr = 'K 线数据源不可达';
             for (let i = 0; i < urls.length; i++) {
                 let timer = null;
                 try {
                     const ctl = new AbortController();
-                    timer = setTimeout(function () { ctl.abort(); }, 10000);
+                    const waitMs = (interval === '1d' || interval === '1w' || interval === '1M') ? 20000 : 10000;
+                    timer = setTimeout(function () { ctl.abort(); }, waitMs);
                     const res = await fetch(urls[i], { cache: 'no-store', credentials: 'omit', signal: ctl.signal });
                     clearTimeout(timer); timer = null;
                     if (!res.ok) { lastErr = 'HTTP ' + res.status; continue; }
                     const payload = await res.json();
                     const ks = payload && payload.data && payload.data.klines;
-                    if (!Array.isArray(ks) || !ks.length) { lastErr = '无分钟K线数据'; continue; }
+                    if (!Array.isArray(ks) || !ks.length) { lastErr = '无 K 线数据'; continue; }
                     // 东财字段顺序：时间,开,收,高,低,量
                     const rows = ks.map(function (line) {
                         const p = String(line).split(',');
                         return { t: parseEmTime(p[0]), o: Number(p[1]), c: Number(p[2]), h: Number(p[3]), l: Number(p[4]) };
                     }).filter(function (r) { return Number.isFinite(r.t) && r.o > 0 && r.h > 0 && r.l > 0 && r.c > 0; });
-                    if (!rows.length) { lastErr = '分钟K线解析失败'; continue; }
+                    if (!rows.length) { lastErr = 'K 线解析失败'; continue; }
                     return (interval === '4h') ? aggregateBySec(rows, 4 * 3600000) : rows;
                 } catch (err) {
                     if (timer) clearTimeout(timer);
@@ -5749,8 +5955,16 @@
                 const em = await fetchEmKlines(secid, interval);
                 return em.map(function (r) { return [r.t, r.o, r.h, r.l, r.c]; });
             }
-            // 日/周线：美股正股走新浪日K（前复权 + 近三年）；期货（如 COMEX 黄金 GC）走新浪全球期货日K
-            const cutoff = Date.now() - US_HISTORY_DAYS * 86400000;
+            // 月线：上市至今。新浪日K仅约三年；有东财 secid 时直接拉月K（klt=103，前复权）
+            if (interval === '1M' && secid) {
+                try {
+                    const em = await fetchEmKlines(secid, '1M');
+                    if (em && em.length) return em.map(function (r) { return [r.t, r.o, r.h, r.l, r.c]; });
+                } catch (e) { /* 回退到新浪日K聚合 */ }
+            }
+            // 日/周线：美股正股走新浪日K（前复权 + 近三年）；月线无东财时也走新浪（尽量全量，不再截近三年）
+            // 期货（如 COMEX 黄金 GC）走新浪全球期货日K
+            const cutoff = (interval === '1M') ? 0 : (Date.now() - US_HISTORY_DAYS * 86400000);
             let agg;
             if (sina) {
                 const daily = await fetchSinaDailyK(sina);
@@ -5781,7 +5995,7 @@
             // 缓存有效期：日线60分钟，周线120分钟，其他15分钟
             let maxAge = 15 * 60 * 1000;
             if (interval === '1d') maxAge = 60 * 60 * 1000;
-            if (interval === '1w') maxAge = 120 * 60 * 1000;
+            if (interval === '1w' || interval === '1M') maxAge = 120 * 60 * 1000;
 
             if (Date.now() - cached.time < maxAge) {
                 return cached.data;
@@ -5798,9 +6012,9 @@
             const limit = ENTRY_CHART_LIMITS[interval] || 500;
             const qs = '?symbol=' + encodeURIComponent(symbol) + '&interval=' + encodeURIComponent(interval) + '&limit=' + limit;
             const urls = [
-                'http://127.0.0.1:8788/fapi/v1/klines' + qs,
                 'https://fapi.binance.com/fapi/v1/klines' + qs,
-                'https://www.binance.com/fapi/v1/klines' + qs
+                'https://www.binance.com/fapi/v1/klines' + qs,
+                'http://127.0.0.1:8788/fapi/v1/klines' + qs
             ];
             let lastError = '行情接口不可达';
             for (let i = 0; i < urls.length; i++) {
@@ -5837,7 +6051,7 @@
         function applyChartSize(st) {
             if (!st || !st.chart || !st.body) return;
             const w = st.body.clientWidth, h = st.body.clientHeight;
-            if (w > 0 && h > 0) { try { st.chart.applyOptions({ width: w, height: h }); } catch (e) {} }
+            if (w > 0 && h > 0) { try { st.chart.applyOptions({ width: w, height: h }); } catch (e) {} try { syncUsOpenVlinePositions(st); } catch (e) {} }
         }
 
         function applyEntryPriceLines(st) {
@@ -6066,8 +6280,9 @@
             if (hit && hit.pending) return NaN;
             dayOpenCache[symbol] = { day: dayKey, open: NaN, pending: true };
             const urls = [
-                'http://127.0.0.1:8788/fapi/v1/klines?symbol=' + symbol + '&interval=1d&limit=1',
-                'https://fapi.binance.com/fapi/v1/klines?symbol=' + symbol + '&interval=1d&limit=1'
+                'https://fapi.binance.com/fapi/v1/klines?symbol=' + symbol + '&interval=1d&limit=1',
+                'https://www.binance.com/fapi/v1/klines?symbol=' + symbol + '&interval=1d&limit=1',
+                'http://127.0.0.1:8788/fapi/v1/klines?symbol=' + symbol + '&interval=1d&limit=1'
             ];
             for (let i = 0; i < urls.length; i++) {
                 try {
@@ -6272,7 +6487,7 @@
         // 否则同一 ticker 在主/子区域各有一张卡时会共用同一个图表实例，只有最后一张能画出图。
         function usChartHtml(ticker, sec, scope, sina) {
             const key = 'u' + (scope || 'm') + ':' + ticker;
-            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(ticker) + '" data-src="us" data-sec="' + escHtml(sec || '') + '" data-sina="' + escHtml(sina || '') + '" data-entry="0" data-liq="0" title="美股正股蜡烛图（分钟线：东财 · 日线/周线：新浪日K 前复权·近三年）· 5分~周线可切换 · 不自动刷新"><div class="pc-chart-tip">走势加载中…</div></div>';
+            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(ticker) + '" data-src="us" data-sec="' + escHtml(sec || '') + '" data-sina="' + escHtml(sina || '') + '" data-entry="0" data-liq="0" title="美股正股蜡烛图（分钟线：东财 · 日/周：新浪近三年 · 月线：东财上市至今年）· 5分~周线可切换 · 不自动刷新"><div class="pc-chart-tip">走势加载中…</div></div>';
         }
 
         // 没有在美股上市的品种：右侧用一张说明卡占位，避免配对布局出现空白
@@ -6375,36 +6590,48 @@
         prefetchDayOpen();
 
         // ===== 一键从币安 API 更新（独立追加，不影响其它逻辑）=====
-        // 浏览器无法直接携带 API Secret 调用币安签名接口，这里调用本地中转（127.0.0.1:8788/sync），
-        // 由它触发本地同步脚本各跑一次，随后用页面原有的刷新函数重新读取数据。
+        // 浏览器无法携带 API Secret；持仓由后台 auto_sync_hidden.vbs 直连 fapi 写入 live js（不再调用 8788/sync），
+        // 本按钮只重新加载同目录 live js；后台同步脚本由登录自启负责。
         async function refreshFromBinanceApi() {
             const btn = document.getElementById('apiRefreshBtn');
             const label = btn ? (btn.dataset.label || btn.textContent) : '';
-            if (btn) { btn.dataset.label = label; btn.disabled = true; btn.textContent = '⏳ 正在从币安读取…'; }
+            if (btn) { btn.dataset.label = label; btn.disabled = true; btn.textContent = '⏳ 正在自动同步…'; }
             const restore = function (text, delay) {
                 if (!btn) return;
                 btn.textContent = text;
                 if (delay) { setTimeout(function () { btn.textContent = label; btn.disabled = false; }, delay); }
                 else { btn.disabled = false; }
             };
+            // 持仓由 HKCU Run → auto_sync_hidden.vbs 后台直连 fapi 写入 positions_live.js / subaccount_live.js
+            // 页面不再依赖 127.0.0.1:8788 中转，也不再提示双击 bat。
             try {
-                const ctl = new AbortController();
-                const timer = setTimeout(function () { ctl.abort(); }, 60000);
-                const res = await fetch('http://127.0.0.1:8788/sync', { method: 'POST', cache: 'no-store', signal: ctl.signal });
-                clearTimeout(timer);
-                let data = null;
-                try { data = await res.json(); } catch (e) { data = null; }
-                if (!res.ok || !data || !data.ok) {
-                    const detail = data && (data.error || (data.main && data.main.out) || (data.sub && data.sub.out));
-                    throw new Error(detail || ('HTTP ' + res.status));
+                let ok = false;
+                for (let i = 0; i < 6; i++) {
+                    if (typeof refreshLivePositions === 'function') await refreshLivePositions();
+                    if (typeof refreshSubaccount === 'function') await refreshSubaccount();
+                    const live = window.__BINANCE_LIVE__;
+                    const sub = window.__BINANCE_SUBACCOUNT__;
+                    const liveOk = live && !live.error && live.positions;
+                    const subOk = sub && !sub.error;
+                    if (liveOk || subOk) { ok = true; break; }
+                    await new Promise(function (r) { setTimeout(r, 1500); });
                 }
-                if (typeof refreshLivePositions === 'function') await refreshLivePositions();
-                if (typeof refreshSubaccount === 'function') await refreshSubaccount();
-                restore('✅ 已更新 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false }), 4000);
+                if (ok) {
+                    restore('✅ 已刷新 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false }), 4000);
+                } else {
+                    const err = (window.__BINANCE_LIVE__ && window.__BINANCE_LIVE__.error) || (window.__BINANCE_SUBACCOUNT__ && window.__BINANCE_SUBACCOUNT__.error) || '等待后台同步';
+                    restore('⏳ 同步中', 4000);
+                    const bar = document.getElementById('liveAccountBar');
+                    if (bar) {
+                        bar.innerHTML = '<span class="lab-muted">正在自动同步，请稍候（' + String(err).replace(/[<>&]/g, '') + '）。登录后后台已自启，无需手动操作。</span>';
+                    }
+                }
             } catch (e) {
-                const msg = (e && e.name === 'AbortError') ? '请求超时（60 秒）' : ((e && e.message) || '未知错误');
-                restore('❌ 更新失败', 3000);
-                alert('从币安 API 读取失败：' + msg + '\n\n需要本地中转服务在运行：双击桌面「币安监控启动.bat」。');
+                restore('⏳ 请稍候', 3000);
+                const bar = document.getElementById('liveAccountBar');
+                if (bar) {
+                    bar.innerHTML = '<span class="lab-muted">正在自动同步，请稍候。登录后后台已自启，无需双击任何启动脚本。</span>';
+                }
             }
         }
 

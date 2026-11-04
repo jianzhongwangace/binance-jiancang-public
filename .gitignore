@@ -1,0 +1,12 @@
+.env
+*.env
+.binance_*.env
+sync_*.ps1
+sync_*.log
+bak_*
+*.bak*
+*.lnk
+auto_sync*
+一键启动同步.vbs
+realized_cache.json
+subaccount_realized_cache.json
