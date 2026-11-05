@@ -965,6 +965,7 @@
                             <select id="mainSortSelector" onchange="changeMainSort(this.value)" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer;">
                                 <option value="margin">按保证金（默认）</option>
                                 <option value="qty">按持仓</option>
+                                <option value="liqBuffer">按易爆仓</option>
                                 <option value="pnl">按总盈亏</option>
                                 <option value="pnlPercent">按收益率</option>
                                 <option value="dayChange">按今日涨跌</option>
@@ -1056,6 +1057,7 @@
                             <select id="subSortSelector" onchange="changeSubSort(this.value)" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer;">
                                 <option value="margin">按保证金（默认）</option>
                                 <option value="qty">按持仓</option>
+                                <option value="liqBuffer">按易爆仓</option>
                                 <option value="pnl">按总盈亏</option>
                                 <option value="pnlPercent">按收益率</option>
                                 <option value="dayChange">按今日涨跌</option>
@@ -4139,7 +4141,7 @@
         let lastUpdateTime = 0;
 
         // 排序相关变量
-        let mainSortMode = 'margin'; // margin, qty, pnl, pnlPercent, dayChange, name
+        let mainSortMode = 'margin'; // margin, qty, liqBuffer, pnl, pnlPercent, dayChange, name
         let subSortMode = 'margin';
 
         const MODE_META = {
@@ -4158,12 +4160,26 @@
             renderSubaccount();
         }
 
+
+        // 距强平缓冲%：越小越易爆仓。多=(mark-liq)/mark；空=(liq-mark)/mark。无强平价/标记价 → Infinity（沉底）
+        function liquidationBufferPct(mark, liq, sideOrAmt) {
+            const m = Number(mark), l = Number(liq);
+            if (!(Number.isFinite(m) && m > 0 && Number.isFinite(l) && l > 0)) return Infinity;
+            const isShort = (sideOrAmt === 'short') || (typeof sideOrAmt === 'number' && sideOrAmt < 0);
+            const buf = isShort ? ((l - m) / m) : ((m - l) / m);
+            return Number.isFinite(buf) ? buf : Infinity;
+        }
         function getSortComparator(mode) {
             return function(symbolA, symbolB) {
                 const a = positionNumbers(symbolA);
                 const b = positionNumbers(symbolB);
 
                 switch(mode) {
+                    case 'liqBuffer': // 按易爆仓：距强平缓冲%升序（越小越靠前）；无强平价沉底
+                        const lbA = liquidationBufferPct(a.price, liquidationPrice(a.config), (a.config && a.config.side) || a.positionAmt);
+                        const lbB = liquidationBufferPct(b.price, liquidationPrice(b.config), (b.config && b.config.side) || b.positionAmt);
+                        return lbA - lbB;
+
                     case 'pnl': // 按总盈亏排序（从高到低）
                         const pnlA = a.valid ? a.pnlUsdt : -Infinity;
                         const pnlB = b.valid ? b.pnlUsdt : -Infinity;
@@ -4246,6 +4262,11 @@
                 const xB = subPositionNumbers(symbolB, pB) || {};
 
                 switch(mode) {
+                    case 'liqBuffer': // 按易爆仓：距强平缓冲%升序（越小越靠前）；无强平价沉底
+                        const lbA = liquidationBufferPct(xA.mark, Number(pA && pA.liqPrice), (pA && pA.side) || xA.amt);
+                        const lbB = liquidationBufferPct(xB.mark, Number(pB && pB.liqPrice), (pB && pB.side) || xB.amt);
+                        return lbA - lbB;
+
                     case 'pnl': // 按总盈亏排序（即时验算优先）
                         const pnlA = xA.pnlValid ? xA.pnl : -Infinity;
                         const pnlB = xB.pnlValid ? xB.pnl : -Infinity;
