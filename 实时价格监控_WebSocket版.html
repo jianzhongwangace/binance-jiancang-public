@@ -4369,29 +4369,42 @@
         let activeSubaccountSymbol = null;
 
         async function loadSubaccountScript() {
-            try {
-                if (subaccountScriptEl && subaccountScriptEl.parentNode) subaccountScriptEl.parentNode.removeChild(subaccountScriptEl);
-                const url = 'subaccount_live.js?t=' + Date.now();
-                const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
-                if (!res.ok) return false;
-                const text = await res.text();
-                const s = document.createElement('script');
-                s.text = text;
-                subaccountScriptEl = s;
-                document.head.appendChild(s);
-                return true;
-            } catch (e) {
-                try {
-                    const s = document.createElement('script');
-                    s.src = 'subaccount_live.js?t=' + Date.now();
-                    s.async = true;
-                    subaccountScriptEl = s;
-                    document.head.appendChild(s);
-                    return await new Promise(function(resolve){ s.onload=function(){resolve(true)}; s.onerror=function(){resolve(false)}; });
-                } catch (e2) { return false; }
+            function injectViaSrc() {
+                return new Promise(function(resolve) {
+                    try {
+                        if (subaccountScriptEl && subaccountScriptEl.parentNode) subaccountScriptEl.parentNode.removeChild(subaccountScriptEl);
+                        const s = document.createElement('script');
+                        s.src = 'subaccount_live.js?t=' + Date.now();
+                        s.async = true;
+                        s.onload = function() { resolve(true); };
+                        s.onerror = function() { resolve(false); };
+                        subaccountScriptEl = s;
+                        document.head.appendChild(s);
+                    } catch (e) { resolve(false); }
+                });
             }
-        } catch(e) { resolve(false); }
-            });
+            try {
+                const proto = (location && location.protocol) || '';
+                if (proto === 'http:' || proto === 'https:') {
+                    try {
+                        if (subaccountScriptEl && subaccountScriptEl.parentNode) subaccountScriptEl.parentNode.removeChild(subaccountScriptEl);
+                        const url = 'subaccount_live.js?t=' + Date.now();
+                        const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
+                        if (!res.ok) return await injectViaSrc();
+                        const text = await res.text();
+                        const s = document.createElement('script');
+                        s.text = text;
+                        subaccountScriptEl = s;
+                        document.head.appendChild(s);
+                        return true;
+                    } catch (eFetch) {
+                        return await injectViaSrc();
+                    }
+                }
+                return await injectViaSrc();
+            } catch (e) {
+                return false;
+            }
         }
         function subPositionConfig(symbol, p) {
             const st=STATIC_POSITIONS[symbol]||{}; const amt=Number(p.positionAmt)||0; const init=Number(p.initialMargin)||0;
@@ -4750,41 +4763,46 @@
         let liveScriptEl = null;
 
         async function loadLivePositionsScript() {
-            try {
-                if (liveScriptEl && liveScriptEl.parentNode) {
-                    liveScriptEl.parentNode.removeChild(liveScriptEl);
-                }
-                const url = 'positions_live.js?t=' + Date.now();
-                const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
-                if (!res.ok) return false;
-                const text = await res.text();
-                const s = document.createElement('script');
-                s.text = text;
-                liveScriptEl = s;
-                document.head.appendChild(s);
-                return true;
-            } catch (e) {
-                try {
-                    const s = document.createElement('script');
-                    s.src = 'positions_live.js?t=' + Date.now();
-                    s.async = true;
-                    liveScriptEl = s;
-                    document.head.appendChild(s);
-                    return await new Promise((resolve) => { s.onload = () => resolve(true); s.onerror = () => resolve(false); });
-                } catch (e2) { return false; }
+            function injectViaSrc() {
+                return new Promise(function(resolve) {
+                    try {
+                        if (liveScriptEl && liveScriptEl.parentNode) {
+                            liveScriptEl.parentNode.removeChild(liveScriptEl);
+                        }
+                        const s = document.createElement('script');
+                        s.src = 'positions_live.js?t=' + Date.now();
+                        s.async = true;
+                        s.onload = function() { resolve(true); };
+                        s.onerror = function() { resolve(false); };
+                        liveScriptEl = s;
+                        document.head.appendChild(s);
+                    } catch (e) { resolve(false); }
+                });
             }
-        }
-                    const s = document.createElement('script');
-                    s.src = 'positions_live.js?t=' + Date.now();
-                    s.async = true;
-                    s.onload = () => resolve(true);
-                    s.onerror = () => resolve(false);
-                    liveScriptEl = s;
-                    document.head.appendChild(s);
-                } catch (e) {
-                    resolve(false);
+            try {
+                const proto = (location && location.protocol) || '';
+                if (proto === 'http:' || proto === 'https:') {
+                    try {
+                        if (liveScriptEl && liveScriptEl.parentNode) {
+                            liveScriptEl.parentNode.removeChild(liveScriptEl);
+                        }
+                        const url = 'positions_live.js?t=' + Date.now();
+                        const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
+                        if (!res.ok) return await injectViaSrc();
+                        const text = await res.text();
+                        const s = document.createElement('script');
+                        s.text = text;
+                        liveScriptEl = s;
+                        document.head.appendChild(s);
+                        return true;
+                    } catch (eFetch) {
+                        return await injectViaSrc();
+                    }
                 }
-            });
+                return await injectViaSrc();
+            } catch (e) {
+                return false;
+            }
         }
 
         async function refreshLivePositions() {
