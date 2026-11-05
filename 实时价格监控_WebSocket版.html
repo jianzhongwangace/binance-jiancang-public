@@ -2824,7 +2824,7 @@
 
         function miniChartHtml(account, symbol, entry, liq) {
             const key = account + ':' + symbol;
-            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(symbol) + '" data-entry="' + (Number(entry) || 0) + '" data-liq="' + (Number(liq) || 0) + '" title="卡内 TradingView 蜡烛图 · 橙色虚线=建仓价 · 红色虚线=爆仓价 · 可拖动缩放、切换周期 · 不自动刷新（点 ↻ 手动刷新）"><div class="pc-chart-tip">走势加载中…</div></div>';
+            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(symbol) + '" data-entry="' + (Number(entry) || 0) + '" data-liq="' + (Number(liq) || 0) + '" title="卡内 TradingView 蜡烛图 · 橙色虚线=建仓价 · 红色虚线=爆仓价 · 可拖动缩放、切换周期 · 可见卡每60秒自动刷新 · 无缓存 · 右上角显示上次刷新"><div class="pc-chart-tip">走势加载中…</div></div>';
         }
 
         function markMiniInterval(st) {
@@ -3040,7 +3040,8 @@
             st.interval = iv || '1h';
             markMiniInterval(st);
             updateMiniLast(st);
-            loadMiniChart(st);
+            // 切周期：force 清旧图再拉，不用上一周期 K 顶上
+            loadMiniChart(st, true);
         }
 
         function createMiniChart(box, key, symbol) {
