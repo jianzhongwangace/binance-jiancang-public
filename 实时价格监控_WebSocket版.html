@@ -4223,6 +4223,8 @@
         let POSITIONS = JSON.parse(JSON.stringify(STATIC_POSITIONS));
         let liveFlat = false;
         let liveSyncMeta = { updatedAt: '', error: '', account: null };
+        let lastGoodLive = null;          // 失败时页面继续展示上一份成功快照
+        let lastGoodSubaccount = null;
         let subaccountScriptEl = null;
         let subaccountTimer = null;
         let activeSubaccountSymbol = null;
@@ -4247,15 +4249,25 @@
                 return;
             }
 
-            const live=window.__BINANCE_SUBACCOUNT__;
+            let live=window.__BINANCE_SUBACCOUNT__;
             console.log('📊 子账户数据:', live);
+
+            if (live && live.account && live.positions && !live.error) {
+                lastGoodSubaccount = live;
+            } else if (live && live.error && live.account && live.positions) {
+                // 脚本失败但保留了快照：继续用这份数据渲染，并在 summary 提示
+                lastGoodSubaccount = live;
+            } else if (live && live.error && lastGoodSubaccount) {
+                // 纯错误 payload：回退上一份成功快照
+                live = Object.assign({}, lastGoodSubaccount, { error: live.error, failAt: live.updatedAt || '' });
+            }
 
             if(!live){
                 grid.innerHTML='<div class="detail-empty">等待子账户同步…请运行"启动子账户同步.bat"</div>';
                 console.warn('⚠️ 子账户数据未加载');
                 return;
             }
-            if(live.error){
+            if(live.error && !(live.account && live.positions)){
                 grid.innerHTML='<div class="detail-empty">子账户同步失败：'+escHtml(friendlyApiError(live.error))+'</div>';
                 summary.innerHTML='<div class="summary-line lab-err">子账户数据暂不可用 · 同步时间 '+escHtml(live.updatedAt||'--')+'</div>';
                 console.error('❌ 子账户同步失败:', live.error);
@@ -4297,8 +4309,9 @@
             if (typeof mountMiniCharts === 'function') mountMiniCharts();
             const wallet=Number(a.totalWalletBalance),initM=Number(a.totalPositionInitialMargin),upnl=a.totalUnrealizedProfit==null?NaN:Number(a.totalUnrealizedProfit),eq=Number(a.totalMarginBalance),avail=Number(a.availableBalance),hasUpnl=Number.isFinite(upnl),cls=!hasUpnl?'neutral':upnl>0?'positive':upnl<0?'negative':'neutral';
             const msg=!hasUpnl?'等待账户 API 盈亏数据':upnl>0?`🎉 子账户 API 盈利 ${usdtCny(upnl,2,true)}`:upnl<0?`⚠️ 子账户 API 亏损 ${usdtCny(upnl)}`:`➖ 子账户 API 盈亏为 ${usdtCny(0)}`;
+            const subErrNote = live.error ? (' · <span class="lab-err">最近同步失败（已保留上一份成功数据）：' + escHtml(friendlyApiError(live.error)) + '</span>') : '';
             summary.innerHTML=`
-                <div class="summary-line" style="font-size:11px;color:var(--muted);">子账户持仓合计 · ${keys.length} 个标的 · 同步 ${escHtml(live.updatedAt||'--')}</div>
+                <div class="summary-line" style="font-size:11px;color:var(--muted);">子账户持仓合计 · ${keys.length} 个标的 · 同步 ${escHtml(live.updatedAt||'--')}${subErrNote}</div>
                 <div class="summary-line">💰 钱包余额(API): <span>${usdtCny(wallet)}</span> · 初始保证金合计(API): <span>${usdtCny(initM)}</span></div>
                 <div class="summary-line primary-pnl pnl-highlight ${cls}">💵 未实现盈亏(API)：<span class="summary-value">${usdtCny(hasUpnl?upnl:NaN,2,true)}</span></div>
                 <div class="summary-line">📊 收益率(ROE): <span class="neutral">API未提供</span> · 可用(API): <span>${usdtCny(avail)}</span></div>
@@ -4335,7 +4348,7 @@
         }
 
         async function refreshSubaccount(){ await loadSubaccountScript(); renderSubaccount(); }
-        function startSubaccountLoader(){ refreshSubaccount(); if(subaccountTimer)clearInterval(subaccountTimer); subaccountTimer=setInterval(refreshSubaccount,5000); }
+        function startSubaccountLoader(){ refreshSubaccount(); if(subaccountTimer)clearInterval(subaccountTimer); subaccountTimer=setInterval(refreshSubaccount,8000); }
 
         const CAT_META = {
             tradfi: { badge: 'TradFi', cls: 'pt-tradfi', tip: '标准传统金融永续合约：标记价锚定外部正股参考价，美股闭市时段无外部报价' },
@@ -4411,15 +4424,28 @@
         }
 
         function applyLivePositions() {
-            const live = window.__BINANCE_LIVE__;
+            let live = window.__BINANCE_LIVE__;
+            // 成功快照缓存；纯错误时回退；错误但带 account 时仍可用
+            if (live && live.account && live.positions && !live.error) {
+                lastGoodLive = live;
+            } else if (live && live.error && live.account && live.positions) {
+                lastGoodLive = { updatedAt: live.updatedAt, account: live.account, positions: live.positions };
+            } else if (live && live.error && lastGoodLive) {
+                live = Object.assign({}, lastGoodLive, { error: live.error });
+                try { window.__BINANCE_LIVE__ = live; } catch (e) {}
+            }
             liveSyncMeta = {
-                updatedAt: (live && live.updatedAt) || '',
+                updatedAt: (live && live.updatedAt) || (lastGoodLive && lastGoodLive.updatedAt) || '',
                 error: (live && live.error) || '',
-                account: (live && live.account) || null
+                account: (live && live.account) || (lastGoodLive && lastGoodLive.account) || null
             };
-            if (!live || live.error) {
+            if (!live) {
                 refreshTotals();
-                return { changed: false, error: !!(live && live.error) };
+                return { changed: false, error: false };
+            }
+            if (live.error && !(live.account && live.positions)) {
+                refreshTotals();
+                return { changed: false, error: true };
             }
             const livePos = live.positions || {};
             const liveKeys = Object.keys(livePos);
@@ -4530,7 +4556,7 @@
             if (!el) return;
             const acc = liveSyncMeta.account;
             const t = liveSyncMeta.updatedAt || '--';
-            if (liveSyncMeta.error) {
+            if (liveSyncMeta.error && !acc) {
                 el.innerHTML = `<span class="lab-err">持仓同步失败：${escHtml(friendlyApiError(liveSyncMeta.error))}</span> · <span class="lab-muted">同步时间 ${t}</span>`;
                 return;
             }
@@ -4542,7 +4568,7 @@
             let staleNote = '';
             if (acc && liveSyncMeta.updatedAt) {
                 const age = (Date.now() - new Date(liveSyncMeta.updatedAt).getTime()) / 1000;
-                if (Number.isFinite(age) && age > 30) {
+                if (Number.isFinite(age) && age > 90) {
                     staleNote = ` · <span class="lab-err">数据已 ${Math.round(age)} 秒未更新，请检查后台同步是否在跑</span>`;
                     try {
                         const host = (location && location.hostname) || '';
@@ -4560,8 +4586,9 @@
             const avail = Number(acc.availableBalance) || 0;
             const upnlStr = Number.isFinite(upnl) ? usdtCny(upnl, 2, true) : usdtCny(NaN);
             const eqStr = Number.isFinite(equity) ? equity.toFixed(2) : '--';
-            el.innerHTML = `钱包 <strong>${usdtCny(wallet)}</strong> · uPnL(API) <strong>${upnlStr}</strong> · 权益 <strong>${usdtCny(equity)}</strong> · 可用 <strong>${usdtCny(avail)}</strong> · 持仓 ${n} · 同步 ${t}${flatNote}${staleNote}`;
-            el.className = 'lab-ok';
+            const errKeep = liveSyncMeta.error ? ` · <span class="lab-err">最近同步失败（已保留成功快照）：${escHtml(friendlyApiError(liveSyncMeta.error))}</span>` : '';
+            el.innerHTML = `钱包 <strong>${usdtCny(wallet)}</strong> · uPnL(API) <strong>${upnlStr}</strong> · 权益 <strong>${usdtCny(equity)}</strong> · 可用 <strong>${usdtCny(avail)}</strong> · 持仓 ${n} · 同步 ${t}${flatNote}${staleNote}${errKeep}`;
+            el.className = liveSyncMeta.error ? 'lab-err' : 'lab-ok';
         }
 
         let liveLoaderTimer = null;
@@ -4607,7 +4634,7 @@
             refreshLivePositions();
             startSubaccountLoader();
             if (liveLoaderTimer) clearInterval(liveLoaderTimer);
-            liveLoaderTimer = setInterval(refreshLivePositions, 5000);
+            liveLoaderTimer = setInterval(refreshLivePositions, 8000);
         }
 
         // 币安 U本位合约公开行情接口。优先直连；8788 仅可选回退（不再要求启动 bat）。
