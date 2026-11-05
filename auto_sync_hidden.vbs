@@ -1,5 +1,5 @@
 Option Explicit
-' Auto-start Binance position sync (main + subaccount). Direct fapi, no relay/node.
+' Auto-start Binance position sync (main + subaccount) and throttled GitHub Pages live publisher.
 ' ASCII-only on purpose: non-ASCII comments break when WScript parses as ANSI/GBK.
 ' Skips anything already running (guard by command-line marker).
 
@@ -28,16 +28,19 @@ Sub StartHiddenPs(psFile, logFile)
   sh.Run "cmd /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & psFile & """ > """ & logFile & """ 2>&1", 0, False
 End Sub
 
-Dim started1, started2
+Dim started1, started2, started3
 started1 = IsRunning("powershell.exe", "sync_positions.ps1")
 started2 = IsRunning("powershell.exe", "sync_subaccount.ps1")
+started3 = IsRunning("powershell.exe", "publish_live_to_github.ps1")
 
 If Not started1 Then StartHiddenPs dir & "\sync_positions.ps1", dir & "\sync_positions.log"
 If Not started2 Then StartHiddenPs dir & "\sync_subaccount.ps1", dir & "\sync_subaccount.log"
+If Not started3 Then StartHiddenPs dir & "\publish_live_to_github.ps1", dir & "\publish_live_stdout.log"
 
 Dim ts
 Set ts = fso.CreateTextFile(dir & "\auto_sync_last_run.txt", True)
 ts.WriteLine "checked at " & Now
 ts.WriteLine "positions already running: " & started1
 ts.WriteLine "subaccount already running: " & started2
+ts.WriteLine "publisher already running: " & started3
 ts.Close

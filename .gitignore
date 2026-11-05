@@ -11,3 +11,7 @@ realized_cache.json
 subaccount_realized_cache.json
 bak_*
 *.bak_*
+publish_live_state.json
+publish_live.log
+publish_live_stdout.log
+BinanceAutoSync.lnk

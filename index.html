@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>币安实时价格监控 - 真正实时版</title>
@@ -4366,13 +4368,29 @@
         let subaccountTimer = null;
         let activeSubaccountSymbol = null;
 
-        function loadSubaccountScript() {
-            return new Promise(function(resolve) {
+        async function loadSubaccountScript() {
+            try {
+                if (subaccountScriptEl && subaccountScriptEl.parentNode) subaccountScriptEl.parentNode.removeChild(subaccountScriptEl);
+                const url = 'subaccount_live.js?t=' + Date.now();
+                const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
+                if (!res.ok) return false;
+                const text = await res.text();
+                const s = document.createElement('script');
+                s.text = text;
+                subaccountScriptEl = s;
+                document.head.appendChild(s);
+                return true;
+            } catch (e) {
                 try {
-                    if (subaccountScriptEl && subaccountScriptEl.parentNode) subaccountScriptEl.parentNode.removeChild(subaccountScriptEl);
-                    const s = document.createElement('script'); s.src='subaccount_live.js?t='+Date.now(); s.async=true;
-                    s.onload=function(){resolve(true)}; s.onerror=function(){resolve(false)}; subaccountScriptEl=s; document.head.appendChild(s);
-                } catch(e) { resolve(false); }
+                    const s = document.createElement('script');
+                    s.src = 'subaccount_live.js?t=' + Date.now();
+                    s.async = true;
+                    subaccountScriptEl = s;
+                    document.head.appendChild(s);
+                    return await new Promise(function(resolve){ s.onload=function(){resolve(true)}; s.onerror=function(){resolve(false)}; });
+                } catch (e2) { return false; }
+            }
+        } catch(e) { resolve(false); }
             });
         }
         function subPositionConfig(symbol, p) {
@@ -4710,7 +4728,7 @@
                     try {
                         const host = (location && location.hostname) || '';
                         if (/github\.io$/i.test(host) || (age > 300 && /^https?:$/i.test(location.protocol || ''))) {
-                            staleNote += ` · <span class="lab-err">若打开的是 GitHub Pages：本地 sync 只写磁盘、不自动推送，线上页会停在旧快照；请打开桌面目录本地 HTML（file://）才能跟 positions_live.js 实时刷新</span>`;
+                            staleNote += ` · <span class="lab-err">若打开的是 GitHub Pages：持仓由本机 sync 写入后经 publish_live_to_github 约每4分钟推送快照；线上可能落后本地数分钟。要秒级请开桌面 file:// 页</span>`;
                         }
                     } catch (e) {}
                 }
@@ -4731,12 +4749,31 @@
         let liveLoaderTimer = null;
         let liveScriptEl = null;
 
-        function loadLivePositionsScript() {
-            return new Promise((resolve) => {
+        async function loadLivePositionsScript() {
+            try {
+                if (liveScriptEl && liveScriptEl.parentNode) {
+                    liveScriptEl.parentNode.removeChild(liveScriptEl);
+                }
+                const url = 'positions_live.js?t=' + Date.now();
+                const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
+                if (!res.ok) return false;
+                const text = await res.text();
+                const s = document.createElement('script');
+                s.text = text;
+                liveScriptEl = s;
+                document.head.appendChild(s);
+                return true;
+            } catch (e) {
                 try {
-                    if (liveScriptEl && liveScriptEl.parentNode) {
-                        liveScriptEl.parentNode.removeChild(liveScriptEl);
-                    }
+                    const s = document.createElement('script');
+                    s.src = 'positions_live.js?t=' + Date.now();
+                    s.async = true;
+                    liveScriptEl = s;
+                    document.head.appendChild(s);
+                    return await new Promise((resolve) => { s.onload = () => resolve(true); s.onerror = () => resolve(false); });
+                } catch (e2) { return false; }
+            }
+        }
                     const s = document.createElement('script');
                     s.src = 'positions_live.js?t=' + Date.now();
                     s.async = true;
