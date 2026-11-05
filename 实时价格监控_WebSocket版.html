@@ -122,6 +122,37 @@
             font-size: 11px;
         }
 
+        /* 未实现盈亏导航：匹配页面 pnl-highlight 琥珀强调，更大字号且不换行 */
+        .nav-card.nav-pnl {
+            background: #fff3a6;
+            border: 1px solid #e0ad00;
+            border-left: 4px solid #d99b00;
+            color: #9a6700;
+            padding: 8px 3px;
+            box-shadow: 0 1px 4px rgba(217, 155, 0, 0.28);
+        }
+        .nav-card.nav-pnl:hover {
+            background: #ffe98a;
+            border-color: #d99b00;
+            border-left-color: #c62828;
+            color: #7a4f00;
+        }
+        .nav-card.nav-pnl.active {
+            background: #ffe070;
+            border-color: #d99b00;
+            border-left-color: #c62828;
+            color: #7a4f00;
+        }
+        .nav-card.nav-pnl .nav-card-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #c62828;
+            white-space: nowrap;
+            letter-spacing: -0.3px;
+            line-height: 1.25;
+            margin-bottom: 0;
+        }
+
         .nav-card-desc {
             color: var(--muted-2);
             font-size: 9px;
@@ -827,7 +858,7 @@
 
         <div class="nav-section">
             <div class="nav-section-title">主账户</div>
-            <div class="nav-card" data-section="mainPnlSummary">
+            <div class="nav-card nav-pnl" data-section="mainPnlSummary">
                 <div class="nav-card-title">💵 未实现盈亏</div>
             </div>
             <div class="nav-card" data-section="position-NVDAUSDT">
@@ -870,7 +901,7 @@
             <div class="nav-card" data-section="subaccountGrid">
                 <div class="nav-card-title">📋 总览</div>
             </div>
-            <div class="nav-card" data-section="subPnlSummary">
+            <div class="nav-card nav-pnl" data-section="subPnlSummary">
                 <div class="nav-card-title">💵 未实现盈亏</div>
             </div>
             <div class="nav-card" data-section="subaccount-NVDAUSDT">
