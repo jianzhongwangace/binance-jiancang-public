@@ -827,6 +827,9 @@
 
         <div class="nav-section">
             <div class="nav-section-title">主账户</div>
+            <div class="nav-card" data-section="mainPnlSummary">
+                <div class="nav-card-title">💵 未实现盈亏</div>
+            </div>
             <div class="nav-card" data-section="position-NVDAUSDT">
                 <div class="nav-card-title">💎 英伟达</div>
             </div>
@@ -866,6 +869,9 @@
             <div class="nav-section-title">子账户</div>
             <div class="nav-card" data-section="subaccountGrid">
                 <div class="nav-card-title">📋 总览</div>
+            </div>
+            <div class="nav-card" data-section="subPnlSummary">
+                <div class="nav-card-title">💵 未实现盈亏</div>
             </div>
             <div class="nav-card" data-section="subaccount-NVDAUSDT">
                 <div class="nav-card-title">💎 英伟达</div>
@@ -4413,7 +4419,7 @@
             summary.innerHTML=`
                 <div class="summary-line" style="font-size:11px;color:var(--muted);">子账户持仓合计 · ${keys.length} 个标的 · 同步 ${escHtml(live.updatedAt||'--')}${subErrNote}</div>
                 <div class="summary-line">💰 钱包余额(API): <span>${usdtCny(wallet)}</span> · 初始保证金合计(API): <span>${usdtCny(initM)}</span></div>
-                <div class="summary-line primary-pnl pnl-highlight ${cls}">💵 未实现盈亏(API)：<span class="summary-value">${usdtCny(hasUpnl?upnl:NaN,2,true)}</span></div>
+                <div class="summary-line primary-pnl pnl-highlight ${cls}" id="subPnlSummary">💵 未实现盈亏(API)：<span class="summary-value">${usdtCny(hasUpnl?upnl:NaN,2,true)}</span></div>
                 <div class="summary-line">📊 收益率(ROE): <span class="neutral">API未提供</span> · 可用(API): <span>${usdtCny(avail)}</span></div>
                 <div class="summary-line primary-pnl ${cls}">💎 账户权益(API)：<span class="summary-value">${usdtCny(Number.isFinite(eq)?eq:NaN)}</span></div>
                 ${feeTotalsLine(live.positions || {}, '💸 全部品种累计费用')}
@@ -6988,6 +6994,8 @@
                 'position-METAUSDT', 'position-SPCXUSDT', 'position-ANTHROPICUSDT',
                 'position-TSLAUSDT', 'position-MSFTUSDT', 'position-AMZNUSDT',
                 'position-GOOGLUSDT', 'position-BTCUSDT',
+                'mainPnlSummary',
+                'subPnlSummary',
                 'subaccountGrid',
                 'subaccount-NVDAUSDT', 'subaccount-OPENAIUSDT', 'subaccount-XAUUSDT',
                 'subaccount-METAUSDT', 'subaccount-SPCXUSDT', 'subaccount-ANTHROPICUSDT',
