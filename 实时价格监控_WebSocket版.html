@@ -595,6 +595,11 @@
         /* 图表浮层：卡片每 5 秒整体重建也不会碰到图表本体（不会闪、不会重置缩放） */
         #mcLayer { position:fixed; left:0; top:0; width:0; height:0; z-index:6; pointer-events:none; }
         #mcLayer .mc-wrap { position:absolute; pointer-events:auto; box-sizing:border-box; border:1px solid var(--border); border-radius:5px; background:var(--panel-bg); overflow:hidden; display:flex; flex-direction:column; }
+        #mcLayer .mc-wrap .mc-head { display:flex; flex-wrap:wrap; align-items:center; gap:4px; padding:2px 6px; border-bottom:1px solid var(--border); flex:0 0 auto; min-height:22px; overflow:visible; z-index:3; box-sizing:border-box; }
+        #mcLayer .mc-wrap .mc-ivs { display:flex; flex-wrap:wrap; align-items:center; gap:4px; min-width:0; flex:1 1 auto; }
+        #mcLayer .mc-wrap .mc-right { display:flex; flex-wrap:nowrap; align-items:center; gap:6px; margin-left:auto; flex:0 0 auto; white-space:nowrap; }
+        #mcLayer .mc-wrap .mc-age { color:#2563eb !important; font-size:11px !important; font-weight:600 !important; letter-spacing:0.02em; flex:0 0 auto; white-space:nowrap; line-height:16px; }
+
         .pc-chart-tag { position:absolute; right:3px; top:2px; font-size:9px; color:var(--muted); background:rgba(255,255,255,.72); padding:0 3px; border-radius:3px; pointer-events:none; }
         .pc-chart-tip { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:10px; }
         .pc-pnl { font-size:11.5px; line-height:1.2; font-weight:bold; font-family:Consolas,monospace; }
@@ -2813,15 +2818,13 @@
            价格轴/时间轴 + 十字光标；橙色虚线 = 建仓价、红色虚线 = 爆仓价，
            卡内可直接切换 15分/1小时/4小时/日线。
            图表实例按「账户:品种」常驻内存（卡片每 5 秒重绘时重新挂载同一个
-           wrap，不重建图表，缩放位置得以保留）；K 线不落本地缓存，每次重拉；
-           视口内可见卡每 60 秒自动重拉（等同 ↻）；成功拉取才更新「N秒/分钟前刷新」；
-           拉取中清空旧图只显示加载中；图内交互已阻断冒泡，不误触卡片跳详情。
+           wrap，不重建图表，缩放位置得以保留）；视口内可见卡每 60 秒自动重拉（等同 ↻）；成功拉取才更新「N秒/分钟前刷新」；无 K 线本地缓存；图内交互已阻断冒泡，拖动/点击不会误触发卡片跳详情。
            ============================================================ */
         const MINI_CHART = { pool: {}, pending: {} }; // 无 K 线本地缓存：每次重拉；pending 仅去重飞行中请求
 
         function miniChartHtml(account, symbol, entry, liq) {
             const key = account + ':' + symbol;
-            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(symbol) + '" data-entry="' + (Number(entry) || 0) + '" data-liq="' + (Number(liq) || 0) + '" title="卡内 TradingView 蜡烛图 · 橙色虚线=建仓价 · 红色虚线=爆仓价 · 可拖动缩放、切换周期 · 每60秒自动刷新可见卡 · 无缓存 · 点 ↻ 可立即刷新"><div class="pc-chart-tip">走势加载中…</div></div>';
+            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(symbol) + '" data-entry="' + (Number(entry) || 0) + '" data-liq="' + (Number(liq) || 0) + '" title="卡内 TradingView 蜡烛图 · 橙色虚线=建仓价 · 红色虚线=爆仓价 · 可拖动缩放、切换周期 · 不自动刷新（点 ↻ 手动刷新）"><div class="pc-chart-tip">走势加载中…</div></div>';
         }
 
         function markMiniInterval(st) {
@@ -2958,10 +2961,9 @@
             if (!st || !st.chart || !st.series) return;
             const iv = st.interval;
             // 非强制：该周期已成功上屏过则跳过（自动刷新走 force=true）
-            // 缩放/拖动位置在非重拉路径完全保留
             if (!force && st.loadedIv === iv && st.rows && st.rows.length) return;
             const ck = st.symbol + '|' + iv;
-            // 同周期强制重拉：先记下视野，清图后成功 setData 再尽量还原（避免每分钟 fitContent 打乱缩放）
+            // 同周期强制重拉：先记下视野，清图后成功 setData 再尽量还原
             let savedRange = null;
             const sameIvHadData = (st.loadedIv === iv && st.rows && st.rows.length);
             if (force && sameIvHadData) {
@@ -2971,12 +2973,10 @@
             if (force || st.loadedIv !== iv || !st.rows || !st.rows.length) {
                 clearMiniSeries(st, '走势加载中…');
             }
-            // 同品种同周期多实例（主/子各一张）：飞行中请求去重，结果按本次拉取返回，不落本地缓存
             if (!MINI_CHART.pending[ck]) {
                 MINI_CHART.pending[ck] = (async function () {
                     try {
                         const raw = (st.src === 'us') ? await fetchUSKlines(st.sina, iv, st.symbol, st.sec, (US_STOCK_MAP[st.symbol] || {}).fut) : await fetchChartKlines(st.symbol, iv);
-                        // 币安时间为 UTC，+8h 平移成北京时间再进图；美股正股卡不平移
                         const tzShift = (st.src === 'us') ? 0 : CHART_TZ_SHIFT;
                         const mapped = (raw || []).map(function (k) {
                             return { time: Math.floor(Number(k[0]) / 1000) + tzShift, open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]) };
@@ -2991,10 +2991,9 @@
             }
             const p = MINI_CHART.pending[ck];
             const res = await p;
-            if (st.interval !== iv) return; // 加载期间用户已切走周期
+            if (st.interval !== iv) return;
             const rows = res && res.rows;
             if (!res || !res.ok || !rows || !rows.length) {
-                // 失败：保持空图 + 提示；不恢复旧图；不更新 lastFetchOk
                 clearMiniSeries(st, (res && res.err) || '暂无 K 线数据');
                 scheduleMiniRetry(st, (res && res.err) || '暂无 K 线数据');
                 return;
@@ -3004,7 +3003,6 @@
                 st.retry = 0;
                 const firstOfInterval = st.loadedIv !== iv;
                 st.series.setData(rows);
-                // 同周期强制重拉：优先还原清图前视野；切周期/首次才自适应
                 if (savedRange) {
                     try { st.chart.timeScale().setVisibleLogicalRange(savedRange); }
                     catch (e) { try { st.chart.timeScale().fitContent(); } catch (e2) {} }
@@ -3026,14 +3024,12 @@
                 st.lastFetchOk = (res && res.ts) || Date.now();
                 updateMiniLast(st);
             } catch (e) {
-                // setData 异常视同失败：空图，不推进计时
                 clearMiniSeries(st, 'K 线绘制失败');
             }
         }
 
         function reloadMiniChart(st) {
             if (!st || !st.chart) return;
-            // 美股顺带清新浪日 K 旁路缓存；清图与重拉交由 loadMiniChart(force)（可保留同周期视野）
             if (st.src === 'us' && st.sina) delete US_DAILY_CACHE[st.sina];
             loadMiniChart(st, true);
         }
@@ -3044,8 +3040,7 @@
             st.interval = iv || '1h';
             markMiniInterval(st);
             updateMiniLast(st);
-            // 切周期：loadMiniChart 见 loadedIv!==iv 会先清旧图再拉，不用上一周期 K 顶上
-            loadMiniChart(st, true);
+            loadMiniChart(st);
         }
 
         function createMiniChart(box, key, symbol) {
@@ -3057,13 +3052,17 @@
             const wrap = document.createElement('div');
             wrap.className = 'mc-wrap';
             const head = document.createElement('div');
-            head.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:2px 6px;border-bottom:1px solid ' + pal.grid + ';background:' + pal.card + ';font-size:10px;flex:0 0 auto;';
-            head.innerHTML = ivList.map(function (p) {
+            head.className = 'mc-head';
+            head.style.cssText = 'background:' + pal.card + ';border-bottom-color:' + pal.grid + ';font-size:10px;';
+            head.innerHTML = '<span class="mc-ivs">' + ivList.map(function (p) {
                 return '<span class="mc-iv" data-iv="' + p[0] + '" role="button" title="切换到' + p[1] + '" style="padding:0 6px;line-height:16px;border:1px solid ' + pal.grid + ';border-radius:3px;color:' + pal.text + ';background:' + pal.bg + ';">' + p[1] + '</span>';
-            }).join('') + '<span style="margin-left:auto;color:' + pal.muted + ';white-space:nowrap;">现价 <b class="mc-last" style="color:' + pal.text + ';">--</b></span>' +
+            }).join('') + '</span>' +
+                '<span class="mc-right">' +
+                '<span class="mc-age" style="color:#2563eb;font-size:11px;font-weight:600;white-space:nowrap;line-height:16px;" title="上次成功拉取 K 线的相对时间">尚未刷新</span>' +
+                '<span style="color:' + pal.muted + ';white-space:nowrap;">现价 <b class="mc-last" style="color:' + pal.text + ';">--</b></span>' +
                 '<span class="mc-et" style="color:' + pal.amber + ';white-space:nowrap;" title="本轮首次建仓时间（由成交记录计算）"></span>' +
-                '<span class="mc-age" style="flex:0 0 auto;color:' + pal.muted + ';white-space:nowrap;font-size:10px;" title="上次成功拉取 K 线的相对时间">尚未刷新</span>' +
-                '<span class="mc-rf" role="button" title="立即刷新K线（清图重拉，无缓存）" style="flex:0 0 auto;padding:0 4px;line-height:16px;border:1px solid ' + pal.grid + ';border-radius:3px;color:' + pal.text + ';background:' + pal.bg + ';cursor:pointer;user-select:none;">↻</span>';
+                '<span class="mc-rf" role="button" title="立即刷新K线（清图重拉，无缓存）" style="flex:0 0 auto;padding:0 4px;line-height:16px;border:1px solid ' + pal.grid + ';border-radius:3px;color:' + pal.text + ';background:' + pal.bg + ';cursor:pointer;user-select:none;">↻</span>' +
+                '</span>';
             const body = document.createElement('div');
             body.className = 'mc-body';
             body.style.background = pal.bg;
@@ -6632,7 +6631,7 @@
         // 否则同一 ticker 在主/子区域各有一张卡时会共用同一个图表实例，只有最后一张能画出图。
         function usChartHtml(ticker, sec, scope, sina) {
             const key = 'u' + (scope || 'm') + ':' + ticker;
-            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(ticker) + '" data-src="us" data-sec="' + escHtml(sec || '') + '" data-sina="' + escHtml(sina || '') + '" data-entry="0" data-liq="0" title="美股正股蜡烛图（分钟线：东财 · 日/周：新浪近三年 · 月线：东财上市至今年）· 5分~周线可切换 · 每60秒自动刷新可见卡 · 无缓存"><div class="pc-chart-tip">走势加载中…</div></div>';
+            return '<div class="pc-chart" data-mc="' + escHtml(key) + '" data-symbol="' + escHtml(ticker) + '" data-src="us" data-sec="' + escHtml(sec || '') + '" data-sina="' + escHtml(sina || '') + '" data-entry="0" data-liq="0" title="美股正股蜡烛图（分钟线：东财 · 日/周：新浪近三年 · 月线：东财上市至今年）· 5分~月线可切换 · 可见卡每60秒自动刷新 · 无缓存 · 右上角显示上次刷新"><div class="pc-chart-tip">走势加载中…</div></div>';
         }
 
         // 没有在美股上市的品种：右侧用一张说明卡占位，避免配对布局出现空白
