@@ -668,7 +668,8 @@
         .pc-addcalc-reallev { font-style:normal; font-size:9.5px; color:#fbbf24; font-weight:600; font-family:Consolas,monospace; white-space:nowrap; letter-spacing:0; }
         .pc-addcalc-reallev.muted { color:#64748b; font-weight:500; }
         .pc-addcalc-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
-        .pc-addcalc-row label { font-size:10px; color:#94a3b8; white-space:nowrap; flex:0 0 auto; }
+        .pc-addcalc-row label { font-size:10px; color:#94a3b8; white-space:nowrap; flex:0 0 6.6em; width:6.6em; }
+        .pc-addcalc-metrics > div.span2 { grid-column: 1 / -1; }
         .pc-addcalc-row input { flex:1 1 auto; min-width:0; height:26px; border-radius:5px; border:1px solid #475569; background:#1e293b; color:#f8fafc; font-size:12px; font-family:Consolas,monospace; padding:0 8px; outline:none; }
         .pc-addcalc-row input:focus { border-color:#60a5fa; box-shadow:0 0 0 2px rgba(96,165,250,.25); }
         .pc-addcalc-row input::-webkit-outer-spin-button, .pc-addcalc-row input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
@@ -4795,12 +4796,13 @@
             return Number.isFinite(v) && v > 0 ? v : NaN;
         }
 
-        // ===== 加仓试算（同向加仓名义 U → 新均价 / 新增保证金 / 维持原爆仓线再补保证金）=====
+        // ===== 加仓试算（同向加仓：名义 U ↔ 新增保证金 双向；新均价 / 维持原爆仓再补 / 一共需要）=====
         // 保证金口径：逐仓优先 isolatedWallet；全仓用 initialMargin。
         // 维持保证金率 mmr 由当前仓位 + API 爆仓价反解（与币安 U 本位逐仓公式一致）：
         //   多：liq = (entry*qty - margin) / (qty*(1-mmr))
         //   空：liq = (entry*qty + margin) / (qty*(1+mmr))
         // 再解 X，使加仓后保证金 = 原保证金 + notional/lev + X 时，新爆仓价 = 原爆仓价。
+        // 名义 notionalAdd ↔ marginAdd = notionalAdd/leverage；两输入 lastEdited 联动，避免互覆盖光标抖动。
         const __ADD_CALC_INPUTS__ = (window.__ADD_CALC_INPUTS__ = window.__ADD_CALC_INPUTS__ || {});
         function positionMarginForLiq(config) {
             const mode = (config && config.mode) || 'isolated';
@@ -4823,6 +4825,40 @@
             if (side === 'short') return l * q * (1 + r) - e * q;
             return e * q - l * q * (1 - r);
         }
+        function formatSyncedAmount(v) {
+            if (!Number.isFinite(v) || !(v > 0)) return '';
+            let s = Number(v).toFixed(8);
+            s = s.replace(/\.?0+$/, '');
+            return s;
+        }
+        function normalizeAddCalcSaved(saved, lev) {
+            const L = Number(lev) || 0;
+            if (saved == null || saved === '') return { notional: '', margin: '', lastEdited: 'notional' };
+            if (typeof saved === 'object') {
+                const notional = saved.notional != null ? String(saved.notional) : '';
+                let margin = saved.margin != null ? String(saved.margin) : '';
+                const lastEdited = saved.lastEdited === 'margin' ? 'margin' : 'notional';
+                const n = Number(notional), m = Number(margin);
+                if ((!margin || !(m > 0)) && n > 0 && L > 0) margin = formatSyncedAmount(n / L);
+                if ((!notional || !(n > 0)) && m > 0 && L > 0) {
+                    return { notional: formatSyncedAmount(m * L), margin: margin, lastEdited: lastEdited };
+                }
+                return { notional: notional, margin: margin, lastEdited: lastEdited };
+            }
+            // 旧版只存名义字符串
+            const notional = String(saved);
+            const n = Number(notional);
+            const margin = (n > 0 && L > 0) ? formatSyncedAmount(n / L) : '';
+            return { notional: notional, margin: margin, lastEdited: 'notional' };
+        }
+        function resolveNotionalFromSaved(savedObj, lev) {
+            const L = Number(lev) || 0;
+            const n = Number(savedObj && savedObj.notional);
+            if (n > 0) return n;
+            const m = Number(savedObj && savedObj.margin);
+            if (m > 0 && L > 0) return m * L;
+            return 0;
+        }
         function calcAddPositionPlan(opts) {
             const entry = Number(opts.entry) || 0;
             const qty = Math.abs(Number(opts.qty) || 0);
@@ -4841,7 +4877,7 @@
                 out.realLevBefore = notionalNow / margin;
             }
             if (!(notionalAdd > 0) || !(entry > 0) || !(qty > 0) || !(lev > 0) || !(mark > 0)) {
-                out.note = '请输入加仓名义，并等待有效标记价';
+                out.note = '请输入加仓名义或新增保证金，并等待有效标记价';
                 return out;
             }
             const qtyAdd = notionalAdd / mark;
@@ -4876,7 +4912,7 @@
                     out.extraKeepLiq = req - effMargin - marginAdd;
                     out.mmr = mmr;
                     finishTotal();
-                    out.note = notePrefix + '按标记价同向加仓 · mmr≈' + (mmr * 100).toFixed(2) + '%（估算）· 维持爆仓再补不含新建仓保证金 · 一共=新增+max(再补,0)';
+                    out.note = notePrefix + '名义↔保证金=名义÷杠杆 · mmr≈' + (mmr * 100).toFixed(2) + '%（估算）· 维持爆仓再补不含新建仓保证金 · 一共=新增+max(再补,0)';
                     return out;
                 }
                 out.extraKeepLiq = NaN;
@@ -4888,7 +4924,7 @@
             out.extraKeepLiq = req - margin - marginAdd;
             out.mmr = mmr;
             finishTotal();
-            out.note = notePrefix + '按标记价同向加仓 · 杠杆 ' + lev + 'x · mmr ' + (mmr * 100).toFixed(2) + '% · 维持爆仓再补不含新建仓保证金 · 一共=新增+max(再补,0)';
+            out.note = notePrefix + '名义↔保证金=名义÷杠杆 · 杠杆 ' + lev + 'x · mmr ' + (mmr * 100).toFixed(2) + '% · 维持爆仓再补不含新建仓保证金 · 一共=新增+max(再补,0)';
             return out;
         }
         function addCalcUsdtRate() {
@@ -4920,6 +4956,9 @@
             const a = Number.isFinite(after) ? (after.toFixed(2) + 'x') : '--';
             return { text: '真实杠杆 ' + b + ' → ' + a, cls: (Number.isFinite(before) || Number.isFinite(after)) ? '' : 'muted' };
         }
+        function addCalcIdleNote(lev) {
+            return '可填加仓名义或新增保证金（互相换算=名义÷杠杆）· 当前杠杆 ' + (lev || '--') + 'x · 按标记价同向加仓 · 金额旁为约合人民币 · 右上为加仓前后真实杠杆';
+        }
         function addCalcCardHtml(acct, symbol, cfg, markPrice) {
             const entry = Number(cfg && cfg.entryPrice) || 0;
             const qty = Math.abs(Number(cfg && (cfg.positionAmt != null ? cfg.positionAmt : cfg.quantity)) || 0);
@@ -4930,20 +4969,25 @@
             const mode = (cfg && cfg.mode) || 'isolated';
             const mark = Number(markPrice) || Number(cfg && cfg.markPrice) || 0;
             const key = String(acct || 'm') + ':' + String(symbol || '');
-            const saved = __ADD_CALC_INPUTS__[key];
-            const valAttr = (saved != null && saved !== '') ? String(saved) : '';
+            const savedObj = normalizeAddCalcSaved(__ADD_CALC_INPUTS__[key], lev);
+            // 持久化为对象，兼容旧字符串
+            __ADD_CALC_INPUTS__[key] = savedObj;
+            const notionalAdd = resolveNotionalFromSaved(savedObj, lev);
             const plan = calcAddPositionPlan({
                 entry: entry, qty: qty, leverage: lev, margin: margin, liq: liq,
-                mark: mark, side: side, mode: mode, notionalAdd: Number(saved) || 0
+                mark: mark, side: side, mode: mode, notionalAdd: notionalAdd
             });
             const extra = formatExtraKeepLiq(plan.extraKeepLiq);
-            const has = Number(saved) > 0;
+            const has = notionalAdd > 0;
             const newEntryText = (has && Number.isFinite(plan.newEntry)) ? formatAddCalcNum(plan.newEntry, 4) : '--';
-            const marginAddText = (has && Number.isFinite(plan.marginAdd)) ? formatAddCalcUsdt(plan.marginAdd, 2) : '--';
             const totalText = (has && Number.isFinite(plan.totalMarginNeed)) ? formatAddCalcUsdt(plan.totalMarginNeed, 2) : '--';
-            const notionalHint = (has && Number.isFinite(Number(saved))) ? formatAddCalcUsdt(Number(saved), 2) : '';
+            const notionalHint = (has && Number.isFinite(Number(savedObj.notional) || notionalAdd))
+                ? formatAddCalcUsdt(Number(savedObj.notional) > 0 ? Number(savedObj.notional) : notionalAdd, 2) : '';
+            const marginHint = (has && Number.isFinite(plan.marginAdd)) ? formatAddCalcUsdt(plan.marginAdd, 2) : '';
             const realLev = formatRealLevPair(plan.realLevBefore, plan.realLevAfter, has);
-            const note = has ? (plan.note || '') : ('输入加仓名义 U（非保证金）· 当前杠杆 ' + (lev || '--') + 'x · 按标记价同向加仓 · 金额旁为约合人民币 · 右上为加仓前后真实杠杆');
+            const note = has ? (plan.note || '') : addCalcIdleNote(lev);
+            const notionalVal = savedObj.notional || '';
+            const marginVal = savedObj.margin || ((has && Number.isFinite(plan.marginAdd)) ? formatSyncedAmount(plan.marginAdd) : '');
             return '<div class="pc-addcalc" data-acct="' + escHtml(acct) + '" data-symbol="' + escHtml(symbol) + '"'
                 + ' data-entry="' + entry + '" data-qty="' + qty + '" data-lev="' + lev + '" data-margin="' + margin + '"'
                 + ' data-liq="' + liq + '" data-side="' + side + '" data-mode="' + escHtml(mode) + '" data-mark="' + mark + '"'
@@ -4953,15 +4997,19 @@
                 + '<span class="pc-addcalc-reallev' + (realLev.cls ? ' ' + realLev.cls : '') + '" data-role="realLev">' + escHtml(realLev.text) + '</span>'
                 + '</span></div>'
                 + '<div class="pc-addcalc-row"><label>加仓名义(U)</label>'
-                + '<input type="number" min="0" step="any" inputmode="decimal" placeholder="例如 100"'
-                + ' value="' + escHtml(valAttr) + '"'
+                + '<input type="number" min="0" step="any" inputmode="decimal" placeholder="例如 100" data-field="notional"'
+                + ' value="' + escHtml(notionalVal) + '"'
                 + ' oninput="onAddCalcInput(this)" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" />'
                 + '<span class="pc-addcalc-cnyhint" data-role="notionalCny">' + escHtml(notionalHint) + '</span></div>'
+                + '<div class="pc-addcalc-row"><label>新增保证金(U)</label>'
+                + '<input type="number" min="0" step="any" inputmode="decimal" placeholder="例如 2" data-field="margin"'
+                + ' value="' + escHtml(marginVal) + '"'
+                + ' oninput="onAddCalcInput(this)" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" />'
+                + '<span class="pc-addcalc-cnyhint" data-role="marginCny">' + escHtml(marginHint) + '</span></div>'
                 + '<div class="pc-addcalc-metrics">'
                 + '<div><span>综合新均价</span><b data-role="newEntry">' + newEntryText + '</b></div>'
-                + '<div><span>新增保证金</span><b data-role="marginAdd">' + marginAddText + '</b></div>'
                 + '<div><span>维持爆仓再补</span><b data-role="extra" class="' + (has ? extra.cls : 'muted') + '">' + (has ? extra.text : '--') + '</b></div>'
-                + '<div><span>一共需要的保证金</span><b data-role="totalNeed" class="' + (has ? '' : 'muted') + '">' + totalText + '</b></div>'
+                + '<div class="span2"><span>一共需要的保证金</span><b data-role="totalNeed" class="' + (has ? '' : 'muted') + '">' + totalText + '</b></div>'
                 + '</div>'
                 + '<div class="pc-addcalc-note" data-role="note">' + escHtml(note) + '</div>'
                 + '</div>';
@@ -4974,28 +5022,73 @@
                 const acct = card.getAttribute('data-acct') || 'm';
                 const symbol = card.getAttribute('data-symbol') || '';
                 const key = acct + ':' + symbol;
-                __ADD_CALC_INPUTS__[key] = el.value;
+                const field = el.getAttribute('data-field') === 'margin' ? 'margin' : 'notional';
+                const lev = Number(card.getAttribute('data-lev')) || 0;
+                const notionalInp = card.querySelector('input[data-field="notional"]');
+                const marginInp = card.querySelector('input[data-field="margin"]');
+                let notionalAdd = 0;
+                if (field === 'margin') {
+                    const marginAdd = Number(el.value);
+                    if (marginAdd > 0 && lev > 0) {
+                        notionalAdd = marginAdd * lev;
+                        if (notionalInp && document.activeElement !== notionalInp) {
+                            const synced = formatSyncedAmount(notionalAdd);
+                            if (notionalInp.value !== synced) notionalInp.value = synced;
+                        }
+                    } else {
+                        notionalAdd = 0;
+                        if (notionalInp && document.activeElement !== notionalInp && notionalInp.value !== '') notionalInp.value = '';
+                    }
+                    // 若名义框当前未同步（极端），仍用保证金反推
+                    if (!(notionalAdd > 0) && Number(notionalInp && notionalInp.value) > 0) notionalAdd = Number(notionalInp.value);
+                    else if (!(Number(notionalInp && notionalInp.value) > 0) && notionalAdd > 0) { /* already set */ }
+                    else if (Number(notionalInp && notionalInp.value) > 0 && document.activeElement === notionalInp) notionalAdd = Number(notionalInp.value);
+                    else if (marginAdd > 0 && lev > 0) notionalAdd = marginAdd * lev;
+                } else {
+                    notionalAdd = Number(el.value) || 0;
+                    if (notionalAdd > 0 && lev > 0) {
+                        const marginAdd = notionalAdd / lev;
+                        if (marginInp && document.activeElement !== marginInp) {
+                            const synced = formatSyncedAmount(marginAdd);
+                            if (marginInp.value !== synced) marginInp.value = synced;
+                        }
+                    } else {
+                        if (marginInp && document.activeElement !== marginInp && marginInp.value !== '') marginInp.value = '';
+                    }
+                }
+                // 统一以名义为准（保证金输入时已反推名义）
+                if (field === 'margin') {
+                    const m = Number(marginInp && marginInp.value);
+                    if (m > 0 && lev > 0) notionalAdd = m * lev;
+                    else notionalAdd = 0;
+                } else {
+                    notionalAdd = Number(notionalInp && notionalInp.value) || 0;
+                }
+                __ADD_CALC_INPUTS__[key] = {
+                    notional: notionalInp ? String(notionalInp.value || '') : '',
+                    margin: marginInp ? String(marginInp.value || '') : '',
+                    lastEdited: field
+                };
                 const plan = calcAddPositionPlan({
                     entry: Number(card.getAttribute('data-entry')),
                     qty: Number(card.getAttribute('data-qty')),
-                    leverage: Number(card.getAttribute('data-lev')),
+                    leverage: lev,
                     margin: Number(card.getAttribute('data-margin')),
                     liq: Number(card.getAttribute('data-liq')),
                     mark: Number(card.getAttribute('data-mark')),
                     side: card.getAttribute('data-side'),
                     mode: card.getAttribute('data-mode'),
-                    notionalAdd: Number(el.value)
+                    notionalAdd: notionalAdd
                 });
                 const bEntry = card.querySelector('[data-role="newEntry"]');
-                const bAdd = card.querySelector('[data-role="marginAdd"]');
                 const bExtra = card.querySelector('[data-role="extra"]');
                 const bTotal = card.querySelector('[data-role="totalNeed"]');
                 const bNotional = card.querySelector('[data-role="notionalCny"]');
+                const bMarginCny = card.querySelector('[data-role="marginCny"]');
                 const bRealLev = card.querySelector('[data-role="realLev"]');
                 const note = card.querySelector('[data-role="note"]');
-                const has = Number(el.value) > 0;
+                const has = notionalAdd > 0;
                 if (bEntry) bEntry.textContent = has && Number.isFinite(plan.newEntry) ? formatAddCalcNum(plan.newEntry, 4) : '--';
-                if (bAdd) bAdd.textContent = has && Number.isFinite(plan.marginAdd) ? formatAddCalcUsdt(plan.marginAdd, 2) : '--';
                 if (bExtra) {
                     const extra = formatExtraKeepLiq(plan.extraKeepLiq);
                     bExtra.textContent = has ? extra.text : '--';
@@ -5005,13 +5098,14 @@
                     bTotal.textContent = has && Number.isFinite(plan.totalMarginNeed) ? formatAddCalcUsdt(plan.totalMarginNeed, 2) : '--';
                     bTotal.className = has ? '' : 'muted';
                 }
-                if (bNotional) bNotional.textContent = has && Number.isFinite(Number(el.value)) ? formatAddCalcUsdt(Number(el.value), 2) : '';
+                if (bNotional) bNotional.textContent = has && Number.isFinite(notionalAdd) ? formatAddCalcUsdt(notionalAdd, 2) : '';
+                if (bMarginCny) bMarginCny.textContent = has && Number.isFinite(plan.marginAdd) ? formatAddCalcUsdt(plan.marginAdd, 2) : '';
                 if (bRealLev) {
                     const rl = formatRealLevPair(plan.realLevBefore, plan.realLevAfter, has);
                     bRealLev.textContent = rl.text;
                     bRealLev.className = 'pc-addcalc-reallev' + (rl.cls ? ' ' + rl.cls : '');
                 }
-                if (note) note.textContent = has ? (plan.note || '') : ('输入加仓名义 U（非保证金）· 当前杠杆 ' + (card.getAttribute('data-lev') || '--') + 'x · 按标记价同向加仓 · 金额旁为约合人民币 · 右上为加仓前后真实杠杆');
+                if (note) note.textContent = has ? (plan.note || '') : addCalcIdleNote(card.getAttribute('data-lev') || '--');
             } catch (err) { /* ignore */ }
         }
         window.onAddCalcInput = onAddCalcInput;
@@ -5548,10 +5642,15 @@
             document.querySelectorAll('.usdt-cny-note').forEach(function(note) {
                 note.textContent='（'+cnyOnly(Number(note.dataset.usdt))+'）';
             });
-            // 汇率到位后刷新加仓试算卡片上的人民币备注
+            // 汇率到位后刷新加仓试算卡片上的人民币备注（每卡只刷一次，按 lastEdited）
             try {
-                document.querySelectorAll('.pc-addcalc input').forEach(function(inp) {
-                    if (typeof onAddCalcInput === 'function') onAddCalcInput(inp);
+                document.querySelectorAll('.pc-addcalc').forEach(function(card) {
+                    const acct = card.getAttribute('data-acct') || 'm';
+                    const symbol = card.getAttribute('data-symbol') || '';
+                    const saved = (window.__ADD_CALC_INPUTS__ || {})[acct + ':' + symbol];
+                    const field = (saved && saved.lastEdited === 'margin') ? 'margin' : 'notional';
+                    const inp = card.querySelector('input[data-field="' + field + '"]') || card.querySelector('input');
+                    if (inp && typeof onAddCalcInput === 'function') onAddCalcInput(inp);
                 });
             } catch (e) {}
         }
@@ -5611,6 +5710,7 @@
                 return {
                     acct: card.getAttribute('data-acct') || 'm',
                     symbol: card.getAttribute('data-symbol') || '',
+                    field: ae.getAttribute('data-field') || 'notional',
                     start: ae.selectionStart,
                     end: ae.selectionEnd
                 };
@@ -5620,7 +5720,9 @@
             try {
                 if (!snap || !root) return;
                 const card = root.querySelector('.pc-addcalc[data-acct="' + snap.acct + '"][data-symbol="' + snap.symbol + '"]');
-                const inp = card && card.querySelector('input');
+                if (!card) return;
+                const field = snap.field === 'margin' ? 'margin' : 'notional';
+                const inp = card.querySelector('input[data-field="' + field + '"]') || card.querySelector('input');
                 if (!inp) return;
                 inp.focus();
                 if (typeof snap.start === 'number' && typeof snap.end === 'number') {
