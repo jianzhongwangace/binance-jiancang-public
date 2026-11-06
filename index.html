@@ -606,6 +606,13 @@
         .pc-us > span { display:inline-flex; align-items:baseline; gap:3px; white-space:nowrap; }
         .pc-us i { font-style:normal; }
         .pc-us b { font-family:Consolas,monospace; font-size:10px; }
+        .pc-us-sess { display:inline-block; font-size:10px; font-weight:700; padding:1px 6px; border-radius:8px; margin-left:4px; vertical-align:middle; letter-spacing:.02em; }
+        .pc-us-sess.pre { background:#fff3d6; color:#8a6d00; border:1px solid #e0ad00; }
+        .pc-us-sess.regular { background:#e8f5e9; color:#1b5e20; border:1px solid #66bb6a; }
+        .pc-us-sess.post { background:#e3f2fd; color:#0d47a1; border:1px solid #64b5f6; }
+        .pc-us-sess.closed { background:var(--card-bg-2); color:var(--muted); border:1px solid var(--border-strong); }
+        .pc-us-preline { display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin:2px 0 0; font-size:10px; color:var(--muted); }
+        .pc-us-preline b { font-family:Consolas,monospace; font-size:11px; }
         .pc-metrics { display:flex; flex:1 1 auto; flex-wrap:nowrap; align-items:baseline; justify-content:space-evenly; gap:6px; margin:0; padding:0; min-width:0; overflow:hidden; }
         .pc-metrics > span { display:inline-flex; align-items:baseline; gap:3px; min-width:0; font-size:8.5px; color:var(--muted); white-space:nowrap; }
         .pc-metrics i { font-style:normal; }
@@ -6634,6 +6641,35 @@
             return m >= 9 * 60 + 30 && m <= 16 * 60;
         }
 
+        // 美东交易时段：盘前 04:00–09:30 / 盘中 09:30–16:00 / 盘后 16:00–20:00 / 其余已收盘（周末也算已收盘）
+        // 用「当前时钟」判徽章；报价时间字段只用于标注「现价属于哪一段」
+        function usETWeekday(ts) {
+            const d = new Date(ts);
+            const off = usETOffsetStr(d.toISOString().slice(0, 10));
+            const offH = Number(off.slice(1, 3)) * (off.charAt(0) === '-' ? -1 : 1);
+            return new Date(ts + offH * 3600000).getUTCDay(); // 0=Sun … 6=Sat
+        }
+        function usMarketSession(ts) {
+            const t = Number(ts) || Date.now();
+            const dow = usETWeekday(t);
+            if (dow === 0 || dow === 6) return 'closed';
+            const m = usETMinuteOfDay(t);
+            if (m >= 4 * 60 && m < 9 * 60 + 30) return 'pre';
+            if (m >= 9 * 60 + 30 && m < 16 * 60) return 'regular';
+            if (m >= 16 * 60 && m < 20 * 60) return 'post';
+            return 'closed';
+        }
+        const US_SESS_LABEL = { pre: '盘前', regular: '盘中', post: '盘后', closed: '已收盘' };
+        function usSessBadgeHtml(sess) {
+            const s = US_SESS_LABEL[sess] ? sess : 'closed';
+            return '<span class="pc-us-sess ' + s + '" title="美东交易时段（冬/夏令时已按 usETOffsetStr 换算）">' + US_SESS_LABEL[s] + '</span>';
+        }
+        function usPriceSessHint(q) {
+            // 现价旁注明：这笔「现价」来自哪一时段（优先用报价时间；无则按当前时钟）
+            const sess = (q && q.ts) ? usMarketSession(q.ts) : usMarketSession(Date.now());
+            return US_SESS_LABEL[sess] || '已收盘';
+        }
+
         // 腾讯行情解析：美股为 ~ 分隔，外盘期货（hf_ 开头）为 , 分隔
         function parseTxQuote(code, raw) {
             if (!raw) return null;
@@ -6646,9 +6682,24 @@
                 return { ticker: code, name: p[13] || code, price: num(0), pct: num(1), high: num(4), low: num(5), prev: num(7), open: num(8), chg: NaN, ts: Number.isFinite(ts) ? ts : 0 };
             }
             // 美股：3=现价 4=昨收 5=开盘 30=时间（美东当地时间） 31=涨跌额 32=涨跌% 33=最高 34=最低
+            // 67=延时/盘后参考价（有成交时与现价不同；盘前时段常仍是上一交易日盘后价，盘前真价优先走新浪）
             const tstr = (p[30] || '').replace(' ', 'T');
             const ts = Date.parse(tstr + usETOffsetStr(tstr.slice(0, 10)));
-            return { ticker: code, name: p[1] || code, price: num(3), prev: num(4), open: num(5), high: num(33), low: num(34), chg: num(31), pct: num(32), ts: Number.isFinite(ts) ? ts : 0 };
+            const price = num(3), prev = num(4), ext = num(67);
+            const out = { ticker: code, name: p[1] || code, price: price, prev: prev, open: num(5), high: num(33), low: num(34), chg: num(31), pct: num(32), ts: Number.isFinite(ts) ? ts : 0, extPrice: (ext > 0 ? ext : NaN), prePrice: NaN, prePct: NaN, postPrice: NaN };
+            // 盘后：现价仍是收盘、67 有独立延时价 → 记为盘后价
+            if (ext > 0 && price > 0 && Math.abs(ext - price) > 1e-6) out.postPrice = ext;
+            return out;
+        }
+
+        // 新浪美股 hq.sinajs.cn/list=gb_nvda：21=盘前价 22=盘前涨跌%（相对正式收盘）24=盘前时间(美东英文)
+        function parseSinaUSPre(raw) {
+            if (!raw) return null;
+            const p = String(raw).split(',');
+            if (p.length < 25) return null;
+            const pre = Number(p[21]), prePct = Number(p[22]), close = Number(p[1]);
+            if (!(pre > 0)) return null;
+            return { prePrice: pre, prePct: Number.isFinite(prePct) ? prePct : (close > 0 ? ((pre / close) - 1) * 100 : NaN), preTimeTxt: p[24] || '' };
         }
 
         async function loadUSStockQuotes() {
@@ -6692,6 +6743,27 @@
                     });
                 } catch (e) {}
             }
+            // ③ 新浪美股：补盘前价（腾讯盘前时段现价常停在昨收，盘前真价在 gb_* 字段 21）
+            try {
+                const sinaCodes = [];
+                const bySina = {};
+                Object.keys(next).forEach(function (ticker) {
+                    const code = 'gb_' + String(ticker).toLowerCase();
+                    sinaCodes.push(code);
+                    bySina[code] = ticker;
+                });
+                if (sinaCodes.length) {
+                    await loadScriptTag('https://hq.sinajs.cn/list=' + sinaCodes.join(',') + '&_=' + Date.now(), 'gbk', 10000);
+                    sinaCodes.forEach(function (code) {
+                        const ticker = bySina[code];
+                        const pre = parseSinaUSPre(window['hq_str_' + code]);
+                        if (!pre || !next[ticker]) return;
+                        next[ticker].prePrice = pre.prePrice;
+                        next[ticker].prePct = pre.prePct;
+                        if (pre.preTimeTxt) next[ticker].preTimeTxt = pre.preTimeTxt;
+                    });
+                }
+            } catch (e) {}
             if (Object.keys(next).length) US_STOCK_QUOTES = next;
             // 报价到位后立刻重绘一次，不等下一个刷新周期
             try { if (typeof renderPositionHome === 'function') renderPositionHome(); } catch (e) {}
@@ -6727,18 +6799,27 @@
             if (!m) return '';
             const q = US_STOCK_QUOTES[m.ticker];
             if (!q || !(Number(q.price) > 0)) return '';
+            const sessNow = usMarketSession(Date.now());
             const cls = q.pct > 0 ? 'positive' : q.pct < 0 ? 'negative' : 'neutral';
             const pctTxt = (q.pct > 0 ? '+' : '') + q.pct.toFixed(2) + '%';
             const mk = Number(markPrice);
+            const refPx = (sessNow === 'pre' && Number(q.prePrice) > 0) ? Number(q.prePrice) : q.price;
             let premTxt = '', premCls = 'neutral', premTitle = '币安永续标记价相对正股最新价的偏离';
-            if (Number.isFinite(mk) && mk > 0) {
-                const pv = (mk / q.price - 1) * 100;
+            if (Number.isFinite(mk) && mk > 0 && refPx > 0) {
+                const pv = (mk / refPx - 1) * 100;
                 premCls = pv > 0 ? 'positive' : pv < 0 ? 'negative' : 'neutral';
                 premTxt = (pv > 0 ? '+' : '') + pv.toFixed(2) + '%';
             }
             const tsTxt = q.ts ? new Date(q.ts).toLocaleTimeString('zh-CN', { hour12: false }) : '';
-            return '<div class="pc-us" title="' + escHtml(m.label + ' · 数据源：腾讯行情 qt.gtimg.cn · 每 60 秒刷新' + (tsTxt ? ' · 行情时间 ' + tsTxt : '') + (m.soft ? ' · 期货价格，与现货存在升水，溢价仅供参考' : '')) + '">' +
-                '<span><i>美股 ' + escHtml(m.ticker) + '</i><b>' + q.price.toFixed(2) + '</b><b class="' + cls + '">' + pctTxt + '</b></span>' +
+            let preLine = '';
+            if (Number(q.prePrice) > 0) {
+                const pcls = q.prePct > 0 ? 'positive' : q.prePct < 0 ? 'negative' : 'neutral';
+                const pp = (Number.isFinite(q.prePct) ? ((q.prePct > 0 ? '+' : '') + q.prePct.toFixed(2) + '%') : '--');
+                preLine = '<span><i>盘前价</i><b>' + Number(q.prePrice).toFixed(2) + '</b><b class="' + pcls + '">' + pp + '</b></span>';
+            }
+            return '<div class="pc-us" title="' + escHtml(m.label + ' · 数据源：腾讯+新浪 · 每 60 秒刷新' + (tsTxt ? ' · 行情时间 ' + tsTxt : '') + (m.soft ? ' · 期货价格，与现货存在升水，溢价仅供参考' : '')) + '">' +
+                '<span><i>美股 ' + escHtml(m.ticker) + '</i>' + usSessBadgeHtml(sessNow) + '<b>' + q.price.toFixed(2) + '</b><i style="font-size:8px">(' + usPriceSessHint(q) + ')</i><b class="' + cls + '">' + pctTxt + '</b></span>' +
+                preLine +
                 '<span><i>永续溢价</i><b class="' + premCls + '">' + (premTxt || '--') + '</b></span></div>';
         }
 
@@ -6782,31 +6863,46 @@
             if (!m) return nonUsCardHtml(symbol, name, '', '');
             const q = US_STOCK_QUOTES[m.ticker];
             if (!q || !(Number(q.price) > 0)) return nonUsCardHtml(symbol, name, '行情获取中…', m.ticker);
+            const sessNow = usMarketSession(Date.now());
             const cls = q.pct > 0 ? 'positive' : q.pct < 0 ? 'negative' : 'neutral';
             const pctTxt = (q.pct > 0 ? '+' : '') + q.pct.toFixed(2) + '%';
             const mk = Number(mark);
+            const refPx = (sessNow === 'pre' && Number(q.prePrice) > 0) ? Number(q.prePrice)
+                : (sessNow === 'post' && Number(q.postPrice) > 0) ? Number(q.postPrice) : q.price;
             let premTxt = '--', premCls = 'neutral';
-            if (Number.isFinite(mk) && mk > 0) {
-                const pv = (mk / q.price - 1) * 100;
+            if (Number.isFinite(mk) && mk > 0 && refPx > 0) {
+                const pv = (mk / refPx - 1) * 100;
                 premCls = pv > 0 ? 'positive' : pv < 0 ? 'negative' : 'neutral';
                 premTxt = (pv > 0 ? '+' : '') + pv.toFixed(2) + '%';
             }
             const tsTxt = q.ts ? new Date(q.ts).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '--';
             const n2 = function (v) { return Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v).toFixed(2) : '--'; };
-            return '<div class="position-card pc-uscard" title="' + escHtml(m.label + ' · 真实美股行情（东方财富），非币安合成价格') + '">' +
+            let preBlock = '';
+            if (Number(q.prePrice) > 0) {
+                const pcls = q.prePct > 0 ? 'positive' : q.prePct < 0 ? 'negative' : 'neutral';
+                const pp = Number.isFinite(q.prePct) ? ((q.prePct > 0 ? '+' : '') + Number(q.prePct).toFixed(2) + '%') : '--';
+                preBlock = '<div class="pc-us-preline" title="盘前价来自新浪 hq.sinajs.cn（相对正式收盘涨跌%）' + (q.preTimeTxt ? ' · ' + q.preTimeTxt : '') + '">' +
+                    '<span><i>盘前价</i> <b>' + Number(q.prePrice).toFixed(2) + '</b> <b class="' + pcls + '">' + pp + '</b></span>' +
+                    (Number(q.postPrice) > 0 ? '<span><i>盘后价</i> <b>' + Number(q.postPrice).toFixed(2) + '</b></span>' : '') +
+                    '</div>';
+            } else if (Number(q.postPrice) > 0) {
+                preBlock = '<div class="pc-us-preline" title="盘后/延时参考价来自腾讯字段 67"><span><i>盘后价</i> <b>' + Number(q.postPrice).toFixed(2) + '</b></span></div>';
+            }
+            return '<div class="position-card pc-uscard" title="' + escHtml(m.label + ' · 真实美股行情（腾讯+新浪），非币安合成价格') + '">' +
                 '<div class="pc-head"><span class="pc-name">' + escHtml(q.name || m.ticker) +
-                ' <span class="pc-symbol">美股 · ' + escHtml(m.ticker) + '</span></span>' +
+                ' <span class="pc-symbol">美股 · ' + escHtml(m.ticker) + '</span>' + usSessBadgeHtml(sessNow) + '</span>' +
                 '<span class="pc-metrics">' +
-                '<span class="pc-roe"><i>现价</i><b>' + q.price.toFixed(2) + '</b></span>' +
+                '<span class="pc-roe"><i>现价·' + usPriceSessHint(q) + '</i><b>' + q.price.toFixed(2) + '</b></span>' +
                 '<span class="pc-day">涨跌 <b class="' + cls + '">' + pctTxt + '</b></span>' +
                 '<span class="pc-pnl-row"><i>永续溢价</i><b class="pc-pnl ' + premCls + '">' + premTxt + '</b></span>' +
                 '</span><span class="pc-mg"><i>' + escHtml(tsTxt) + '</i></span></div>' +
+                preBlock +
                 usChartHtml(m.ticker, m.sec, scope, m.sina) +
                 '<div class="pc-info"><div><span>开盘</span><b>' + n2(q.open) + '</b></div>' +
                 '<div><span>最高</span><b>' + n2(q.high) + '</b></div>' +
                 '<div><span>最低</span><b>' + n2(q.low) + '</b></div>' +
                 '<div><span>昨收</span><b>' + n2(q.prev) + '</b></div></div>' +
-                '<div class="pc-realized"><div><span>数据源</span><b class="muted">腾讯行情</b></div>' +
+                '<div class="pc-realized"><div><span>数据源</span><b class="muted">腾讯+新浪</b></div>' +
                 '<div><span>刷新</span><b class="muted">60 秒</b></div></div></div>';
         }
 
