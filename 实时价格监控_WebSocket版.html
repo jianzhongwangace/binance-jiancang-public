@@ -2909,13 +2909,33 @@
         }
 
         // 爆仓/建仓价若落在当前可见 K 线价格区间外，LWC 的 priceToCoordinate 会返回 null，
-        // 水平线与轴标签都会被裁掉。把绘制价钳到图内上下边内侧，标题仍写真实价格。
+        // 水平线与轴标签都会被裁掉。把绘制价钳到「系列可见区」上下边内侧（须避开
+        // rightPriceScale.scaleMargins，否则钳到图底像素仍落在边距区，LWC 照样裁掉）。
+        // 另：钳到边缘时在 chart body 内侧叠一层 HTML 红/橙线+标签，保证一定看得见。
+        const LWC_SCALE_MARGIN_TOP = 0.12;
+        const LWC_SCALE_MARGIN_BOTTOM = 0.12;
+
+        function chartBodyEl(st) {
+            if (!st) return null;
+            if (st.body) return st.body;
+            if (st.wrap) {
+                const b = st.wrap.querySelector('.mc-body') || st.wrap.querySelector('.tv-body');
+                if (b) return b;
+            }
+            if (st.box) {
+                const b = st.box.querySelector('.tv-body') || st.box.querySelector('.mc-body');
+                if (b) return b;
+            }
+            return null;
+        }
+
         function panePriceBounds(st, insetPx) {
-            insetPx = (insetPx == null) ? 10 : insetPx;
+            insetPx = (insetPx == null) ? 8 : insetPx;
             if (!st || !st.series) return null;
             let h = 0;
             try {
-                if (st.body && st.body.clientHeight) h = st.body.clientHeight;
+                const body = chartBodyEl(st);
+                if (body && body.clientHeight) h = body.clientHeight;
                 else if (st.h) h = st.h;
                 else if (st.chart && typeof st.chart.chartElement === 'function') {
                     const ce = st.chart.chartElement();
@@ -2923,23 +2943,27 @@
                 }
             } catch (e) {}
             if (!(h > 20)) return null;
+            // 系列可绘区在上下 scaleMargins 之内；再内缩 insetPx，避免贴边仍被裁
+            const yTop = Math.max(insetPx, Math.floor(h * LWC_SCALE_MARGIN_TOP) + insetPx);
+            const yBot = Math.min(h - insetPx, Math.ceil(h * (1 - LWC_SCALE_MARGIN_BOTTOM)) - insetPx);
+            if (!(yBot > yTop + 4)) return null;
             let pTop, pBot;
             try {
-                pTop = st.series.coordinateToPrice(insetPx);
-                pBot = st.series.coordinateToPrice(h - insetPx);
+                pTop = st.series.coordinateToPrice(yTop);
+                pBot = st.series.coordinateToPrice(yBot);
             } catch (e) { return null; }
             if (pTop == null || pBot == null || !Number.isFinite(pTop) || !Number.isFinite(pBot)) return null;
             const lo = Math.min(pTop, pBot), hi = Math.max(pTop, pBot);
             if (!(hi > lo)) return null;
-            return { lo: lo, hi: hi };
+            return { lo: lo, hi: hi, yTop: yTop, yBot: yBot, h: h };
         }
 
         function clampPriceToPane(st, price, insetPx) {
             const b = panePriceBounds(st, insetPx);
-            if (!b || !Number.isFinite(price)) return { price: price, edge: null };
-            if (price < b.lo) return { price: b.lo, edge: 'bottom' };
-            if (price > b.hi) return { price: b.hi, edge: 'top' };
-            return { price: price, edge: null };
+            if (!b || !Number.isFinite(price)) return { price: price, edge: null, bounds: b };
+            if (price < b.lo) return { price: b.lo, edge: 'bottom', bounds: b };
+            if (price > b.hi) return { price: b.hi, edge: 'top', bounds: b };
+            return { price: price, edge: null, bounds: b };
         }
 
         function priceLineTitle(kind, realPrice, edge) {
@@ -2947,6 +2971,51 @@
             // 钳制时标题带真实价，避免轴上显示的是边缘价造成误解
             if (edge) return mark + kind + ' ' + lwcFmt(realPrice);
             return kind;
+        }
+
+        function clearEdgeOverlays(st) {
+            const body = chartBodyEl(st);
+            if (!body) return;
+            body.querySelectorAll('.lwc-edge-overlay').forEach(function (el) {
+                try { el.parentNode.removeChild(el); } catch (e) {}
+            });
+        }
+
+        function syncEdgeOverlay(st, kind, realPrice, edge, color) {
+            const body = chartBodyEl(st);
+            if (!body) return;
+            const id = 'lwc-edge-' + kind;
+            let el = body.querySelector('[data-edge-id="' + id + '"]');
+            if (!edge) {
+                if (el) try { el.parentNode.removeChild(el); } catch (e) {}
+                return;
+            }
+            if (getComputedStyle(body).position === 'static') {
+                try { body.style.position = 'relative'; } catch (e) {}
+            }
+            if (!el) {
+                el = document.createElement('div');
+                el.className = 'lwc-edge-overlay';
+                el.setAttribute('data-edge-id', id);
+                el.style.cssText = 'position:absolute;left:0;right:48px;height:0;z-index:6;pointer-events:none;border-top:2px dashed ' + color + ';';
+                const lab = document.createElement('span');
+                lab.className = 'lwc-edge-label';
+                lab.style.cssText = 'position:absolute;left:8px;transform:translateY(-50%);padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700;line-height:1.4;white-space:nowrap;color:#fff;background:' + color + ';box-shadow:0 1px 3px rgba(0,0,0,.35);';
+                el.appendChild(lab);
+                body.appendChild(el);
+            }
+            const lab = el.querySelector('.lwc-edge-label');
+            const mark = (edge === 'bottom') ? '▼' : '▲';
+            if (lab) lab.textContent = mark + kind + ' ' + lwcFmt(realPrice);
+            el.style.borderTopColor = color;
+            if (lab) lab.style.background = color;
+            if (edge === 'bottom') {
+                el.style.top = 'auto';
+                el.style.bottom = Math.max(10, Math.round((body.clientHeight || 0) * LWC_SCALE_MARGIN_BOTTOM) + 6) + 'px';
+            } else {
+                el.style.bottom = 'auto';
+                el.style.top = Math.max(10, Math.round((body.clientHeight || 0) * LWC_SCALE_MARGIN_TOP) + 6) + 'px';
+            }
         }
 
         function bindPriceLineClamp(st, applyFn) {
@@ -2970,21 +3039,24 @@
             const pal = lwcPalette();
             if (Array.isArray(st.lines)) st.lines.forEach(function (l) { try { st.series.removePriceLine(l); } catch (e) {} });
             st.lines = [];
+            clearEdgeOverlays(st);
             if (Number.isFinite(st.entry) && st.entry > 0) {
                 const ce = clampPriceToPane(st, st.entry);
                 st.lines.push(st.series.createPriceLine({
                     price: ce.price, color: pal.amber, lineWidth: 1, lineStyle: 2,
-                    axisLabelVisible: true, title: priceLineTitle('建仓', st.entry, ce.edge)
+                    axisLabelVisible: !ce.edge, title: priceLineTitle('建仓', st.entry, ce.edge)
                 }));
+                if (ce.edge) syncEdgeOverlay(st, '建仓', st.entry, ce.edge, pal.amber);
             }
             if (Number.isFinite(st.liq) && st.liq > 0) {
                 const cl = clampPriceToPane(st, st.liq);
                 st.lines.push(st.series.createPriceLine({
                     price: cl.price, color: pal.danger, lineWidth: 1, lineStyle: 2,
-                    axisLabelVisible: true, title: priceLineTitle('爆仓', st.liq, cl.edge)
+                    axisLabelVisible: !cl.edge, title: priceLineTitle('爆仓', st.liq, cl.edge)
                 }));
+                if (cl.edge) syncEdgeOverlay(st, '爆仓', st.liq, cl.edge, pal.danger);
             }
-            // 首帧 bounds 可能尚未就绪：下一帧再钳一次
+            // 首帧 bounds 可能尚未就绪：下一帧再钳一次（避免无限 rAF）
             if (!panePriceBounds(st) && (st.liq > 0 || st.entry > 0) && !st._liqClampRetry) {
                 st._liqClampRetry = true;
                 requestAnimationFrame(function () { st._liqClampRetry = false; try { applyMiniLines(st); } catch (e) {} });
@@ -6699,21 +6771,22 @@
                 st.lines.forEach(function (l) { try { st.series.removePriceLine(l); } catch (e) {} });
             }
             st.lines = [];
+            clearEdgeOverlays(st);
             if (Number.isFinite(st.entry) && st.entry > 0) {
                 const ce = clampPriceToPane(st, st.entry);
-                const mark = (ce.edge === 'bottom') ? '▼' : (ce.edge === 'top') ? '▲' : '';
                 st.lines.push(st.series.createPriceLine({
                     price: ce.price, color: pal.amber, lineWidth: 2, lineStyle: 2,
-                    axisLabelVisible: true, title: mark + '建仓 ' + lwcFmt(st.entry)
+                    axisLabelVisible: !ce.edge, title: priceLineTitle('建仓', st.entry, ce.edge)
                 }));
+                if (ce.edge) syncEdgeOverlay(st, '建仓', st.entry, ce.edge, pal.amber);
             }
             if (Number.isFinite(st.liq) && st.liq > 0) {
                 const cl = clampPriceToPane(st, st.liq);
-                const mark = (cl.edge === 'bottom') ? '▼' : (cl.edge === 'top') ? '▲' : '';
                 st.lines.push(st.series.createPriceLine({
-                    price: cl.price, color: pal.danger, lineWidth: 1, lineStyle: 2,
-                    axisLabelVisible: true, title: mark + '爆仓 ' + lwcFmt(st.liq)
+                    price: cl.price, color: pal.danger, lineWidth: 2, lineStyle: 2,
+                    axisLabelVisible: !cl.edge, title: priceLineTitle('爆仓', st.liq, cl.edge)
                 }));
+                if (cl.edge) syncEdgeOverlay(st, '爆仓', st.liq, cl.edge, pal.danger);
             }
             if (!panePriceBounds(st) && (st.liq > 0 || st.entry > 0) && !st._liqClampRetry) {
                 st._liqClampRetry = true;
