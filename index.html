@@ -1108,7 +1108,6 @@
                 <div class="summary-line primary-pnl pnl-highlight" id="mainPnlSummary">💵 未实现盈亏(API)：<span class="summary-value"><span id="totalPnlUsdt">--</span> USDT（<span id="totalPnlCny">¥--</span>）</span></div>
                 <div class="summary-line">📊 收益率(ROE): <span id="totalPnlPercent">API未提供</span> · 可用: <span id="totalAvailableUsdt">--</span> USDT（<span id="totalAvailableCny">¥--</span>）</div>
                 <div class="summary-line primary-pnl" id="mainEquitySummary">💎 账户权益(API)：<span class="summary-value"><span id="totalEquityUsdt">--</span> USDT（<span id="totalEquityCny">¥--</span>）</span></div>
-                <div class="summary-line" id="summaryMessage"></div>
             </div>
 
             <div id="subaccountSummary" class="summary" style="border-left:3px solid var(--blue);"></div>
@@ -4695,7 +4694,6 @@
             // 图表同帧挂回（不重建、不重新取数），避免 5 秒重绘时图区闪一下占位文字
             if (typeof mountMiniCharts === 'function') mountMiniCharts();
             const wallet=Number(a.totalWalletBalance),initM=Number(a.totalPositionInitialMargin),upnl=a.totalUnrealizedProfit==null?NaN:Number(a.totalUnrealizedProfit),eq=Number(a.totalMarginBalance),avail=Number(a.availableBalance),hasUpnl=Number.isFinite(upnl),cls=!hasUpnl?'neutral':upnl>0?'positive':upnl<0?'negative':'neutral';
-            const msg=!hasUpnl?'等待账户 API 盈亏数据':upnl>0?`🎉 子账户 API 盈利 ${usdtCny(upnl,2,true)}`:upnl<0?`⚠️ 子账户 API 亏损 ${usdtCny(upnl)}`:`➖ 子账户 API 盈亏为 ${usdtCny(0)}`;
             const subErrNote = live.error ? (' · <span class="lab-err">最近同步失败（已保留上一份成功数据）：' + escHtml(friendlyApiError(live.error)) + '</span>') : '';
             summary.innerHTML=`
                 <div class="summary-line" style="font-size:11px;color:var(--muted);">子账户持仓合计 · ${keys.length} 个标的 · 同步 ${escHtml(live.updatedAt||'--')}${subErrNote}</div>
@@ -4703,8 +4701,7 @@
                 <div class="summary-line primary-pnl pnl-highlight ${cls}" id="subPnlSummary">💵 未实现盈亏(API)：<span class="summary-value">${usdtCny(hasUpnl?upnl:NaN,2,true)}</span></div>
                 <div class="summary-line">📊 收益率(ROE): <span class="neutral">API未提供</span> · 可用(API): <span>${usdtCny(avail)}</span></div>
                 <div class="summary-line primary-pnl ${cls}">💎 账户权益(API)：<span class="summary-value">${usdtCny(Number.isFinite(eq)?eq:NaN)}</span></div>
-                ${feeTotalsLine(live.positions || {}, '💸 全部品种累计费用')}
-                <div class="summary-line ${cls}">${msg}</div>`;
+                ${feeTotalsLine(live.positions || {}, '💸 全部品种累计费用')}`;
         }
         function showSubaccountHome(){
             activeSubaccountSymbol=null;
@@ -5724,9 +5721,7 @@
             if (typeof mountMiniCharts === 'function') mountMiniCharts();
             const totalCls = !hasAccountPnl ? 'neutral' : accountPnl > 0 ? 'positive' : accountPnl < 0 ? 'negative' : 'neutral';
             summary.innerHTML = '<div class="summary-line"><strong>持仓合计</strong> · 已收到 ' + quoteCount + '/' + Object.keys(POSITIONS).length + ' 个标的行情</div>' +
-                '<div class="summary-line ' + totalCls + '">账户未实现盈亏(API)：<strong>' + usdtCny(hasAccountPnl ? accountPnl : NaN, 2, true) + '</strong></div>' +
-                feeTotalsLine((window.__BINANCE_LIVE__ && window.__BINANCE_LIVE__.positions) || {}, '💸 全部品种累计费用') +
-                '<div class="summary-line" style="color:var(--muted);font-size:11px;">点击卡片查看单品详情、近一个月走势、相关新闻与未来时间表。</div>';
+                feeTotalsLine((window.__BINANCE_LIVE__ && window.__BINANCE_LIVE__.positions) || {}, '💸 全部品种累计费用');
 
             // 产品卡片渲染完成后，确保导航功能正常
             if (typeof ensureNavigationReady === 'function') {
@@ -5948,9 +5943,7 @@
             document.getElementById('totalPnlPercent').className = totalPnlClass;
             const mainPnlSummary = document.getElementById('mainPnlSummary'); if (mainPnlSummary) mainPnlSummary.className = 'summary-line primary-pnl pnl-highlight ' + totalPnlClass;
             const mainEquitySummary = document.getElementById('mainEquitySummary'); if (mainEquitySummary) mainEquitySummary.className = 'summary-line primary-pnl ' + totalPnlClass;
-            const message = !hasApiUpnl ? '等待账户 API 盈亏数据' : apiUpnl > 0 ? '账户 API 盈利 ' + usdtCny(apiUpnl, 2, true) : apiUpnl < 0 ? '账户 API 亏损 ' + usdtCny(apiUpnl) : '账户 API 盈亏为 ' + usdtCny(0);
-            document.getElementById('summaryMessage').textContent = message;
-            document.getElementById('summaryMessage').className = 'summary-line ' + totalPnlClass;
+            // 账户 API 盈亏已在上方「未实现盈亏(API)」展示，不再重复脚注
             const now = new Date();
             document.getElementById('updateTime').textContent = '最后更新: ' + now.toLocaleString('zh-CN', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
             if (activeDetailSymbol && POSITIONS[activeDetailSymbol]) {
