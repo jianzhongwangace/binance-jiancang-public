@@ -3115,7 +3115,7 @@
             box.innerHTML = '';
             miniLayer().appendChild(wrap);
 
-            const st = { key: key, acct: (String(key).charAt(0) === 'u' ? 'u' : String(key).charAt(0) === 's' ? 's' : 'm'), src: src, sec: sec, sina: sina, symbol: symbol, interval: DEFAULT_CHART_INTERVAL, entry: Number(box.getAttribute('data-entry')) || 0, liq: Number(box.getAttribute('data-liq')) || 0, box: box, wrap: wrap, head: head, body: body, chart: null, series: null, lines: [], rows: null, last: NaN, lastFetchOk: 0, w: 0, h: 0 };
+            const st = { key: key, acct: (String(key).charAt(0) === 'u' ? 'u' : String(key).charAt(0) === 's' ? 's' : 'm'), src: src, sec: sec, sina: sina, symbol: symbol, interval: ((src === 'us') ? DEFAULT_US_CHART_INTERVAL : DEFAULT_BINANCE_CHART_INTERVAL), entry: Number(box.getAttribute('data-entry')) || 0, liq: Number(box.getAttribute('data-liq')) || 0, box: box, wrap: wrap, head: head, body: body, chart: null, series: null, lines: [], rows: null, last: NaN, lastFetchOk: 0, w: 0, h: 0 };
             const chart = LightweightCharts.createChart(body, {
                 width: Math.max(120, (box.clientWidth || 320) - 2),
                 height: Math.max(60, (box.clientHeight || 200) - 24),
@@ -5734,8 +5734,10 @@
         const ENTRY_CHART_STATE = {};
         const ENTRY_CHART_INTERVALS = [['5m', '5分'], ['15m', '15分'], ['30m', '30分'], ['1h', '1小时'], ['4h', '4小时'], ['1d', '日线'], ['1w', '周线']];
         const ENTRY_CHART_LIMITS = { '5m': 500, '15m': 400, '30m': 500, '1h': 500, '4h': 400, '1d': 365, '1w': 260 };
-        // 图表默认周期（用户要求默认看周线）：改这里即可，例如 '1h' / '1d'
-        const DEFAULT_CHART_INTERVAL = '1w';
+        // 迷你图/详情图默认周期：币安合约卡 15 分；美股卡 周线（用户可手动切换）
+        const DEFAULT_BINANCE_CHART_INTERVAL = '15m';
+        const DEFAULT_US_CHART_INTERVAL = '1w';
+        const DEFAULT_CHART_INTERVAL = DEFAULT_BINANCE_CHART_INTERVAL; // 兼容旧引用（详情建仓图等走币安默认）
         // 美股正股卡片自己的周期档位（新浪只有日线，周线/月线由日线本地聚合）
         // 美股卡周期 8 档：分钟线走东财；日线/周线用新浪近三年；月线优先东财全历史（上市至今）
         const US_CHART_INTERVALS = [['5m', '5分'], ['15m', '15分'], ['30m', '30分'], ['1h', '1小时'], ['4h', '4小时'], ['1d', '日线'], ['1w', '周线'], ['1M', '月线']];
