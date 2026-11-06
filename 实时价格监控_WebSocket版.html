@@ -656,6 +656,26 @@
         .pc-realized span { font-size:8.5px; color:var(--muted); line-height:1.3; white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
         .pc-realized b { font-size:9.5px; font-family:Consolas,monospace; color:var(--text-2); line-height:1.3; white-space:nowrap; }
         .pc-realized b.positive { color:var(--up); } .pc-realized b.negative { color:var(--down); } .pc-realized b.muted { color:var(--muted); }
+        /* 加仓试算小卡片：挂在币安持仓卡下方 */
+        .pc-leftcol { display:flex; flex-direction:column; gap:6px; min-width:0; height:100%; }
+        .pc-leftcol > .position-card { flex:1 1 auto; min-height:0; }
+        .pc-pair > .pc-leftcol { min-width:0; }
+        .pc-addcalc { background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:7px; padding:8px 9px; cursor:default; box-shadow:inset 0 1px 0 rgba(255,255,255,.04); }
+        .pc-addcalc-title { font-size:11px; font-weight:700; color:#93c5fd; margin:0 0 6px; letter-spacing:.02em; display:flex; align-items:center; justify-content:space-between; gap:6px; }
+        .pc-addcalc-title i { font-style:normal; font-size:9.5px; color:#94a3b8; font-weight:500; }
+        .pc-addcalc-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+        .pc-addcalc-row label { font-size:10px; color:#94a3b8; white-space:nowrap; flex:0 0 auto; }
+        .pc-addcalc-row input { flex:1 1 auto; min-width:0; height:26px; border-radius:5px; border:1px solid #475569; background:#1e293b; color:#f8fafc; font-size:12px; font-family:Consolas,monospace; padding:0 8px; outline:none; }
+        .pc-addcalc-row input:focus { border-color:#60a5fa; box-shadow:0 0 0 2px rgba(96,165,250,.25); }
+        .pc-addcalc-row input::-webkit-outer-spin-button, .pc-addcalc-row input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+        .pc-addcalc-row input[type=number] { -moz-appearance:textfield; appearance:textfield; }
+        .pc-addcalc-metrics { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:4px; }
+        .pc-addcalc-metrics > div { background:#1e293b; border:1px solid #334155; border-radius:5px; padding:5px 6px; min-width:0; }
+        .pc-addcalc-metrics span { display:block; font-size:9px; color:#94a3b8; line-height:1.2; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .pc-addcalc-metrics b { display:block; font-size:11px; font-family:Consolas,monospace; color:#f8fafc; font-weight:700; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .pc-addcalc-metrics b.pos { color:#4ade80; } .pc-addcalc-metrics b.neg { color:#f87171; } .pc-addcalc-metrics b.muted { color:#94a3b8; }
+        .pc-addcalc-note { margin-top:5px; font-size:9px; color:#64748b; line-height:1.45; }
+        @media (max-width:620px) { .pc-addcalc-metrics { grid-template-columns:1fr; } }
         .pc-price { color:var(--text-2); font-size:11px; }
         .pc-status { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .position-detail { display:none; }
@@ -4502,7 +4522,7 @@
                 const name=cfg.name||symbol;
                 return `<div class="position-card pc-empty" title="${escHtml(symbol)} · 子账户未持仓"><div class="pc-head"><span class="pc-name">${escHtml(name)}</span><span class="pc-empty-tag">未持仓</span></div><div class="pc-empty-note">主账户已持有 · 子账户暂无此产品</div></div>`;
             }).join('');
-            grid.innerHTML=(keys.length?keys.map(function(symbol){const p=ps[symbol],c=subPositionConfig(symbol,p);
+            const __addFocusSub=snapshotAddCalcFocus(grid);grid.innerHTML=(keys.length?keys.map(function(symbol){const p=ps[symbol],c=subPositionConfig(symbol,p);
                 const x=subPositionNumbers(symbol,p)||{};
                 const mUsdt=x.initM||0;
                 const mark=x.markValid?x.mark:0;
@@ -4521,7 +4541,8 @@
                 const amtAbs=Math.abs(Number(x.amt!=null?x.amt:(c.quantity!=null?c.quantity:(x.qty||0)))||0);
                 const notionalLive=(x.markValid&&amtAbs>0)?(amtAbs*x.mark):NaN;
                 const notionalUsdt=Number.isFinite(notionalLive)?notionalLive:Math.abs(Number(p.notional)||0);
-                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b></span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b></span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b></div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b></div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b></div><div><span>建仓价</span><b>${entry.toFixed(2)}</b></div><div><span>标记价</span><b>${fmt(mark)}</b></div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b></div><div><span>手续费</span><b class="muted">${feeT}</b></div><div><span>资金费</span><b class="muted">${fuT}</b></div><div><span>合计成本</span><b class="${costC}">${costT}</b></div><div><span>交易费率</span><b class="muted">${frT}</b></div></div></button>${usStockCardHtml(symbol, mark, 's', c.name)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
+                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><div class="pc-leftcol"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b></span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b></span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b></div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b></div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b></div><div><span>建仓价</span><b>${entry.toFixed(2)}</b></div><div><span>标记价</span><b>${fmt(mark)}</b></div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b></div><div><span>手续费</span><b class="muted">${feeT}</b></div><div><span>资金费</span><b class="muted">${fuT}</b></div><div><span>合计成本</span><b class="${costC}">${costT}</b></div><div><span>交易费率</span><b class="muted">${frT}</b></div></div></button>${addCalcCardHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}</div>${usStockCardHtml(symbol, mark, 's', c.name)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
+            restoreAddCalcFocus(grid, __addFocusSub);
             // 图表同帧挂回（不重建、不重新取数），避免 5 秒重绘时图区闪一下占位文字
             if (typeof mountMiniCharts === 'function') mountMiniCharts();
             const wallet=Number(a.totalWalletBalance),initM=Number(a.totalPositionInitialMargin),upnl=a.totalUnrealizedProfit==null?NaN:Number(a.totalUnrealizedProfit),eq=Number(a.totalMarginBalance),avail=Number(a.availableBalance),hasUpnl=Number.isFinite(upnl),cls=!hasUpnl?'neutral':upnl>0?'positive':upnl<0?'negative':'neutral';
@@ -4627,6 +4648,167 @@
             const v = Number(config && config.liqPrice);
             return Number.isFinite(v) && v > 0 ? v : NaN;
         }
+
+        // ===== 加仓试算（同向加仓名义 U → 新均价 / 新增保证金 / 维持原爆仓线再补保证金）=====
+        // 保证金口径：逐仓优先 isolatedWallet；全仓用 initialMargin。
+        // 维持保证金率 mmr 由当前仓位 + API 爆仓价反解（与币安 U 本位逐仓公式一致）：
+        //   多：liq = (entry*qty - margin) / (qty*(1-mmr))
+        //   空：liq = (entry*qty + margin) / (qty*(1+mmr))
+        // 再解 X，使加仓后保证金 = 原保证金 + notional/lev + X 时，新爆仓价 = 原爆仓价。
+        const __ADD_CALC_INPUTS__ = (window.__ADD_CALC_INPUTS__ = window.__ADD_CALC_INPUTS__ || {});
+        function positionMarginForLiq(config) {
+            const mode = (config && config.mode) || 'isolated';
+            const iw = Number(config && config.isolatedWallet) || 0;
+            const im = Number(config && (config.initialMargin != null ? config.initialMargin : config.margin)) || 0;
+            if (mode !== 'cross' && iw > 0) return iw;
+            return im;
+        }
+        function inferMaintMarginRate(side, entry, qty, margin, liq) {
+            const e = Number(entry), q = Number(qty), m = Number(margin), l = Number(liq);
+            if (!(e > 0 && q > 0 && Number.isFinite(m) && m >= 0 && l > 0)) return NaN;
+            let mmr;
+            if (side === 'short') mmr = (e * q + m) / (l * q) - 1;
+            else mmr = 1 - (e * q - m) / (l * q);
+            return (Number.isFinite(mmr) && mmr >= 0 && mmr < 0.25) ? mmr : NaN;
+        }
+        function requiredMarginForLiq(side, entry, qty, liq, mmr) {
+            const e = Number(entry), q = Number(qty), l = Number(liq), r = Number(mmr);
+            if (!(e > 0 && q > 0 && l > 0 && Number.isFinite(r))) return NaN;
+            if (side === 'short') return l * q * (1 + r) - e * q;
+            return e * q - l * q * (1 - r);
+        }
+        function calcAddPositionPlan(opts) {
+            const entry = Number(opts.entry) || 0;
+            const qty = Math.abs(Number(opts.qty) || 0);
+            const lev = Number(opts.leverage) || 0;
+            const margin = Number(opts.margin);
+            const liq = Number(opts.liq);
+            const mark = Number(opts.mark) || 0;
+            const side = opts.side === 'short' ? 'short' : 'long';
+            const mode = opts.mode || 'isolated';
+            const notionalAdd = Number(opts.notionalAdd);
+            const out = { ok:false, newEntry:NaN, marginAdd:NaN, extraKeepLiq:NaN, newQty:NaN, mmr:NaN, note:'', addPrice:mark };
+            if (!(notionalAdd > 0) || !(entry > 0) || !(qty > 0) || !(lev > 0) || !(mark > 0)) {
+                out.note = '请输入加仓名义，并等待有效标记价';
+                return out;
+            }
+            const qtyAdd = notionalAdd / mark;
+            const newQty = qty + qtyAdd;
+            const newEntry = (entry * qty + notionalAdd) / newQty;
+            const marginAdd = notionalAdd / lev;
+            out.newEntry = newEntry;
+            out.newQty = newQty;
+            out.marginAdd = marginAdd;
+            out.ok = true;
+            let mmr = inferMaintMarginRate(side, entry, qty, margin, liq);
+            const notePrefix = mode === 'cross' ? '全仓·' : '逐仓·';
+            if (!Number.isFinite(mmr)) {
+                const fallback = Math.min(0.05, Math.max(0.004, 0.5 / lev));
+                const effMargin = requiredMarginForLiq(side, entry, qty, liq, fallback);
+                if (Number.isFinite(effMargin) && Number.isFinite(liq) && liq > 0) {
+                    mmr = fallback;
+                    const req = requiredMarginForLiq(side, newEntry, newQty, liq, mmr);
+                    out.extraKeepLiq = req - effMargin - marginAdd;
+                    out.mmr = mmr;
+                    out.note = notePrefix + '按标记价同向加仓 · mmr≈' + (mmr * 100).toFixed(2) + '%（估算）· 维持爆仓再补不含新建仓保证金';
+                    return out;
+                }
+                out.extraKeepLiq = NaN;
+                out.note = notePrefix + '无法从 API 爆仓价反解 mmr，仅显示新均价与新增保证金';
+                return out;
+            }
+            const req = requiredMarginForLiq(side, newEntry, newQty, liq, mmr);
+            out.extraKeepLiq = req - margin - marginAdd;
+            out.mmr = mmr;
+            out.note = notePrefix + '按标记价同向加仓 · 杠杆 ' + lev + 'x · mmr ' + (mmr * 100).toFixed(2) + '% · 维持爆仓再补不含新建仓保证金';
+            return out;
+        }
+        function formatAddCalcNum(v, digits) {
+            if (!Number.isFinite(v)) return '--';
+            const d = digits == null ? 2 : digits;
+            return v.toFixed(d);
+        }
+        function formatExtraKeepLiq(x) {
+            if (!Number.isFinite(x)) return { text:'--', cls:'muted' };
+            if (Math.abs(x) < 0.005) return { text:'0.00', cls:'muted' };
+            if (x > 0) return { text: x.toFixed(2), cls:'neg' };
+            return { text: '0（可少' + Math.abs(x).toFixed(2) + '）', cls:'pos' };
+        }
+        function addCalcCardHtml(acct, symbol, cfg, markPrice) {
+            const entry = Number(cfg && cfg.entryPrice) || 0;
+            const qty = Math.abs(Number(cfg && (cfg.positionAmt != null ? cfg.positionAmt : cfg.quantity)) || 0);
+            const lev = Number(cfg && cfg.leverage) || 0;
+            const margin = positionMarginForLiq(cfg || {});
+            const liq = Number(cfg && cfg.liqPrice) || 0;
+            const side = ((cfg && cfg.side === 'short') || (Number(cfg && cfg.positionAmt) < 0)) ? 'short' : 'long';
+            const mode = (cfg && cfg.mode) || 'isolated';
+            const mark = Number(markPrice) || Number(cfg && cfg.markPrice) || 0;
+            const key = String(acct || 'm') + ':' + String(symbol || '');
+            const saved = __ADD_CALC_INPUTS__[key];
+            const valAttr = (saved != null && saved !== '') ? String(saved) : '';
+            const plan = calcAddPositionPlan({
+                entry: entry, qty: qty, leverage: lev, margin: margin, liq: liq,
+                mark: mark, side: side, mode: mode, notionalAdd: Number(saved) || 0
+            });
+            const extra = formatExtraKeepLiq(plan.extraKeepLiq);
+            const has = Number(saved) > 0;
+            const newEntryText = (has && Number.isFinite(plan.newEntry)) ? formatAddCalcNum(plan.newEntry, 4) : '--';
+            const marginAddText = (has && Number.isFinite(plan.marginAdd)) ? formatAddCalcNum(plan.marginAdd, 2) : '--';
+            const note = has ? (plan.note || '') : ('输入加仓名义 U（非保证金）· 当前杠杆 ' + (lev || '--') + 'x · 按标记价同向加仓');
+            return '<div class="pc-addcalc" data-acct="' + escHtml(acct) + '" data-symbol="' + escHtml(symbol) + '"'
+                + ' data-entry="' + entry + '" data-qty="' + qty + '" data-lev="' + lev + '" data-margin="' + margin + '"'
+                + ' data-liq="' + liq + '" data-side="' + side + '" data-mode="' + escHtml(mode) + '" data-mark="' + mark + '"'
+                + ' onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">'
+                + '<div class="pc-addcalc-title">加仓试算<i>' + (side === 'short' ? '空' : '多') + ' · ' + (lev || '--') + 'x · ' + (mode === 'cross' ? '全仓' : '逐仓') + '</i></div>'
+                + '<div class="pc-addcalc-row"><label>加仓名义(U)</label>'
+                + '<input type="number" min="0" step="any" inputmode="decimal" placeholder="例如 100"'
+                + ' value="' + escHtml(valAttr) + '"'
+                + ' oninput="onAddCalcInput(this)" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" /></div>'
+                + '<div class="pc-addcalc-metrics">'
+                + '<div><span>综合新均价</span><b data-role="newEntry">' + newEntryText + '</b></div>'
+                + '<div><span>新增保证金</span><b data-role="marginAdd">' + marginAddText + '</b></div>'
+                + '<div><span>维持爆仓再补</span><b data-role="extra" class="' + (has ? extra.cls : 'muted') + '">' + (has ? extra.text : '--') + '</b></div>'
+                + '</div>'
+                + '<div class="pc-addcalc-note" data-role="note">' + escHtml(note) + '</div>'
+                + '</div>';
+        }
+        function onAddCalcInput(el) {
+            try {
+                if (!el) return;
+                const card = el.closest('.pc-addcalc');
+                if (!card) return;
+                const acct = card.getAttribute('data-acct') || 'm';
+                const symbol = card.getAttribute('data-symbol') || '';
+                const key = acct + ':' + symbol;
+                __ADD_CALC_INPUTS__[key] = el.value;
+                const plan = calcAddPositionPlan({
+                    entry: Number(card.getAttribute('data-entry')),
+                    qty: Number(card.getAttribute('data-qty')),
+                    leverage: Number(card.getAttribute('data-lev')),
+                    margin: Number(card.getAttribute('data-margin')),
+                    liq: Number(card.getAttribute('data-liq')),
+                    mark: Number(card.getAttribute('data-mark')),
+                    side: card.getAttribute('data-side'),
+                    mode: card.getAttribute('data-mode'),
+                    notionalAdd: Number(el.value)
+                });
+                const bEntry = card.querySelector('[data-role="newEntry"]');
+                const bAdd = card.querySelector('[data-role="marginAdd"]');
+                const bExtra = card.querySelector('[data-role="extra"]');
+                const note = card.querySelector('[data-role="note"]');
+                const has = Number(el.value) > 0;
+                if (bEntry) bEntry.textContent = has && Number.isFinite(plan.newEntry) ? formatAddCalcNum(plan.newEntry, 4) : '--';
+                if (bAdd) bAdd.textContent = has && Number.isFinite(plan.marginAdd) ? formatAddCalcNum(plan.marginAdd, 2) : '--';
+                if (bExtra) {
+                    const extra = formatExtraKeepLiq(plan.extraKeepLiq);
+                    bExtra.textContent = has ? extra.text : '--';
+                    bExtra.className = has ? extra.cls : 'muted';
+                }
+                if (note) note.textContent = has ? (plan.note || '') : ('输入加仓名义 U（非保证金）· 当前杠杆 ' + (card.getAttribute('data-lev') || '--') + 'x · 按标记价同向加仓');
+            } catch (err) { /* ignore */ }
+        }
+        window.onAddCalcInput = onAddCalcInput;
+
 
         let TOTAL_MARGIN = Math.round(Object.values(POSITIONS).reduce((sum, c) => sum + (Number(c.initialMargin != null ? c.initialMargin : c.margin) || 0), 0) * 100) / 100;
         let TOTAL_SYMBOLS = Object.keys(POSITIONS).length;
@@ -5206,6 +5388,34 @@
                 alert:priceValid ? checkAlert(price, config.stopLoss, config.takeProfit, config.side) : { text:'暂无有效行情', class:'neutral' } };
         }
 
+
+        function snapshotAddCalcFocus(root) {
+            try {
+                const ae = document.activeElement;
+                if (!ae || !root || !root.contains(ae) || ae.tagName !== 'INPUT') return null;
+                const card = ae.closest('.pc-addcalc');
+                if (!card) return null;
+                return {
+                    acct: card.getAttribute('data-acct') || 'm',
+                    symbol: card.getAttribute('data-symbol') || '',
+                    start: ae.selectionStart,
+                    end: ae.selectionEnd
+                };
+            } catch (e) { return null; }
+        }
+        function restoreAddCalcFocus(root, snap) {
+            try {
+                if (!snap || !root) return;
+                const card = root.querySelector('.pc-addcalc[data-acct="' + snap.acct + '"][data-symbol="' + snap.symbol + '"]');
+                const inp = card && card.querySelector('input');
+                if (!inp) return;
+                inp.focus();
+                if (typeof snap.start === 'number' && typeof snap.end === 'number') {
+                    try { inp.setSelectionRange(snap.start, snap.end); } catch (e) {}
+                }
+            } catch (e) {}
+        }
+
         function renderPositionHome() {
             const grid = document.getElementById('positionGrid');
             const summary = document.getElementById('homeSummary');
@@ -5261,6 +5471,7 @@
                 const rpCls = !Number.isFinite(rpVal) || rpVal === 0 ? 'muted' : rpVal > 0 ? 'positive' : 'negative';
                 // 同一品种：币安卡 + 美股正股卡 包在同一个成对容器里，保证两卡永远同一行
                 cards += '<div class="pc-pair" id="position-' + symbol + '">' +
+                    '<div class="pc-leftcol">' +
                     '<button class="position-card ' + cls + '" onclick="showPositionDetail(&quot;' + escHtml(symbol) + '&quot;)" aria-label="查看' + escHtml(c.name) + '详情">' +
                     '<div class="pc-head"><span class="pc-name">' + escHtml(c.name) + '</span>' +
                     '<span class="pc-metrics">' +
@@ -5285,10 +5496,14 @@
                     '<div><span>资金费</span><b class="muted">' + fuText2 + '</b></div>' +
                     '<div><span>合计成本</span><b class="' + costCls2 + '">' + costText2 + '</b></div>' +
                     '<div><span>交易费率</span><b class="muted">' + frText + '</b></div></div></button>' +
+                    addCalcCardHtml('m', symbol, c, x.priceValid ? x.price : (Number(c.markPrice) || 0)) +
+                    '</div>' +
                     usStockCardHtml(symbol, x.priceValid ? x.price : NaN, 'm', c.name) +
                     '</div>';
             });
+            const __addFocus = snapshotAddCalcFocus(grid);
             grid.innerHTML = cards || '<div class="detail-empty">暂无持仓</div>';
+            restoreAddCalcFocus(grid, __addFocus);
             // 图表同帧挂回（不重建、不重新取数），避免 5 秒重绘时图区闪一下占位文字
             if (typeof mountMiniCharts === 'function') mountMiniCharts();
             const totalCls = !hasAccountPnl ? 'neutral' : accountPnl > 0 ? 'positive' : accountPnl < 0 ? 'negative' : 'neutral';
