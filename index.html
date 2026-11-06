@@ -669,11 +669,12 @@
         .pc-addcalc-row input:focus { border-color:#60a5fa; box-shadow:0 0 0 2px rgba(96,165,250,.25); }
         .pc-addcalc-row input::-webkit-outer-spin-button, .pc-addcalc-row input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
         .pc-addcalc-row input[type=number] { -moz-appearance:textfield; appearance:textfield; }
-        .pc-addcalc-metrics { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:4px; }
+        .pc-addcalc-metrics { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px; }
         .pc-addcalc-metrics > div { background:#1e293b; border:1px solid #334155; border-radius:5px; padding:5px 6px; min-width:0; }
         .pc-addcalc-metrics span { display:block; font-size:9px; color:#94a3b8; line-height:1.2; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .pc-addcalc-metrics b { display:block; font-size:11px; font-family:Consolas,monospace; color:#f8fafc; font-weight:700; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .pc-addcalc-metrics b { display:block; font-size:10.5px; font-family:Consolas,monospace; color:#f8fafc; font-weight:700; line-height:1.35; white-space:normal; word-break:break-word; }
         .pc-addcalc-metrics b.pos { color:#4ade80; } .pc-addcalc-metrics b.neg { color:#f87171; } .pc-addcalc-metrics b.muted { color:#94a3b8; }
+        .pc-addcalc-row .pc-addcalc-cnyhint { flex:0 0 auto; font-size:10px; color:#94a3b8; font-family:Consolas,monospace; min-width:4.5em; text-align:right; }
         .pc-addcalc-note { margin-top:5px; font-size:9px; color:#64748b; line-height:1.45; }
         @media (max-width:620px) { .pc-addcalc-metrics { grid-template-columns:1fr; } }
         .pc-price { color:var(--text-2); font-size:11px; }
@@ -4687,7 +4688,7 @@
             const side = opts.side === 'short' ? 'short' : 'long';
             const mode = opts.mode || 'isolated';
             const notionalAdd = Number(opts.notionalAdd);
-            const out = { ok:false, newEntry:NaN, marginAdd:NaN, extraKeepLiq:NaN, newQty:NaN, mmr:NaN, note:'', addPrice:mark };
+            const out = { ok:false, newEntry:NaN, marginAdd:NaN, extraKeepLiq:NaN, totalMarginNeed:NaN, newQty:NaN, mmr:NaN, note:'', addPrice:mark };
             if (!(notionalAdd > 0) || !(entry > 0) || !(qty > 0) || !(lev > 0) || !(mark > 0)) {
                 out.note = '请输入加仓名义，并等待有效标记价';
                 return out;
@@ -4702,6 +4703,11 @@
             out.ok = true;
             let mmr = inferMaintMarginRate(side, entry, qty, margin, liq);
             const notePrefix = mode === 'cross' ? '全仓·' : '逐仓·';
+            function finishTotal() {
+                // 加这次仓总共要准备的保证金 = 新增保证金 + max(维持爆仓再补, 0)
+                if (Number.isFinite(out.extraKeepLiq)) out.totalMarginNeed = marginAdd + Math.max(out.extraKeepLiq, 0);
+                else out.totalMarginNeed = marginAdd;
+            }
             if (!Number.isFinite(mmr)) {
                 const fallback = Math.min(0.05, Math.max(0.004, 0.5 / lev));
                 const effMargin = requiredMarginForLiq(side, entry, qty, liq, fallback);
@@ -4710,29 +4716,44 @@
                     const req = requiredMarginForLiq(side, newEntry, newQty, liq, mmr);
                     out.extraKeepLiq = req - effMargin - marginAdd;
                     out.mmr = mmr;
-                    out.note = notePrefix + '按标记价同向加仓 · mmr≈' + (mmr * 100).toFixed(2) + '%（估算）· 维持爆仓再补不含新建仓保证金';
+                    finishTotal();
+                    out.note = notePrefix + '按标记价同向加仓 · mmr≈' + (mmr * 100).toFixed(2) + '%（估算）· 维持爆仓再补不含新建仓保证金 · 一共=新增+max(再补,0)';
                     return out;
                 }
                 out.extraKeepLiq = NaN;
-                out.note = notePrefix + '无法从 API 爆仓价反解 mmr，仅显示新均价与新增保证金';
+                finishTotal();
+                out.note = notePrefix + '无法从 API 爆仓价反解 mmr，仅显示新均价与新增/一共保证金';
                 return out;
             }
             const req = requiredMarginForLiq(side, newEntry, newQty, liq, mmr);
             out.extraKeepLiq = req - margin - marginAdd;
             out.mmr = mmr;
-            out.note = notePrefix + '按标记价同向加仓 · 杠杆 ' + lev + 'x · mmr ' + (mmr * 100).toFixed(2) + '% · 维持爆仓再补不含新建仓保证金';
+            finishTotal();
+            out.note = notePrefix + '按标记价同向加仓 · 杠杆 ' + lev + 'x · mmr ' + (mmr * 100).toFixed(2) + '% · 维持爆仓再补不含新建仓保证金 · 一共=新增+max(再补,0)';
             return out;
+        }
+        function addCalcUsdtRate() {
+            // 优先页面已有币安 C2C 汇率；未取到时用约 7.1 估算并在文案中标「估」
+            return Number.isFinite(CNY_RATE) ? CNY_RATE : 7.1;
         }
         function formatAddCalcNum(v, digits) {
             if (!Number.isFinite(v)) return '--';
             const d = digits == null ? 2 : digits;
             return v.toFixed(d);
         }
+        function formatAddCalcUsdt(v, digits) {
+            if (!Number.isFinite(v)) return '--';
+            const d = digits == null ? 2 : digits;
+            const rate = addCalcUsdtRate();
+            const cny = Math.round(Number(v) * rate);
+            const approxTag = Number.isFinite(CNY_RATE) ? '' : '估';
+            return Number(v).toFixed(d) + ' U（约 ¥' + cny + approxTag + '）';
+        }
         function formatExtraKeepLiq(x) {
             if (!Number.isFinite(x)) return { text:'--', cls:'muted' };
-            if (Math.abs(x) < 0.005) return { text:'0.00', cls:'muted' };
-            if (x > 0) return { text: x.toFixed(2), cls:'neg' };
-            return { text: '0（可少' + Math.abs(x).toFixed(2) + '）', cls:'pos' };
+            if (Math.abs(x) < 0.005) return { text: formatAddCalcUsdt(0, 2), cls:'muted' };
+            if (x > 0) return { text: formatAddCalcUsdt(x, 2), cls:'neg' };
+            return { text: '0（可少 ' + formatAddCalcUsdt(Math.abs(x), 2) + '）', cls:'pos' };
         }
         function addCalcCardHtml(acct, symbol, cfg, markPrice) {
             const entry = Number(cfg && cfg.entryPrice) || 0;
@@ -4753,8 +4774,10 @@
             const extra = formatExtraKeepLiq(plan.extraKeepLiq);
             const has = Number(saved) > 0;
             const newEntryText = (has && Number.isFinite(plan.newEntry)) ? formatAddCalcNum(plan.newEntry, 4) : '--';
-            const marginAddText = (has && Number.isFinite(plan.marginAdd)) ? formatAddCalcNum(plan.marginAdd, 2) : '--';
-            const note = has ? (plan.note || '') : ('输入加仓名义 U（非保证金）· 当前杠杆 ' + (lev || '--') + 'x · 按标记价同向加仓');
+            const marginAddText = (has && Number.isFinite(plan.marginAdd)) ? formatAddCalcUsdt(plan.marginAdd, 2) : '--';
+            const totalText = (has && Number.isFinite(plan.totalMarginNeed)) ? formatAddCalcUsdt(plan.totalMarginNeed, 2) : '--';
+            const notionalHint = (has && Number.isFinite(Number(saved))) ? formatAddCalcUsdt(Number(saved), 2) : '';
+            const note = has ? (plan.note || '') : ('输入加仓名义 U（非保证金）· 当前杠杆 ' + (lev || '--') + 'x · 按标记价同向加仓 · 金额旁为约合人民币');
             return '<div class="pc-addcalc" data-acct="' + escHtml(acct) + '" data-symbol="' + escHtml(symbol) + '"'
                 + ' data-entry="' + entry + '" data-qty="' + qty + '" data-lev="' + lev + '" data-margin="' + margin + '"'
                 + ' data-liq="' + liq + '" data-side="' + side + '" data-mode="' + escHtml(mode) + '" data-mark="' + mark + '"'
@@ -4763,11 +4786,13 @@
                 + '<div class="pc-addcalc-row"><label>加仓名义(U)</label>'
                 + '<input type="number" min="0" step="any" inputmode="decimal" placeholder="例如 100"'
                 + ' value="' + escHtml(valAttr) + '"'
-                + ' oninput="onAddCalcInput(this)" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" /></div>'
+                + ' oninput="onAddCalcInput(this)" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" />'
+                + '<span class="pc-addcalc-cnyhint" data-role="notionalCny">' + escHtml(notionalHint) + '</span></div>'
                 + '<div class="pc-addcalc-metrics">'
                 + '<div><span>综合新均价</span><b data-role="newEntry">' + newEntryText + '</b></div>'
                 + '<div><span>新增保证金</span><b data-role="marginAdd">' + marginAddText + '</b></div>'
                 + '<div><span>维持爆仓再补</span><b data-role="extra" class="' + (has ? extra.cls : 'muted') + '">' + (has ? extra.text : '--') + '</b></div>'
+                + '<div><span>一共需要的保证金</span><b data-role="totalNeed" class="' + (has ? '' : 'muted') + '">' + totalText + '</b></div>'
                 + '</div>'
                 + '<div class="pc-addcalc-note" data-role="note">' + escHtml(note) + '</div>'
                 + '</div>';
@@ -4795,16 +4820,23 @@
                 const bEntry = card.querySelector('[data-role="newEntry"]');
                 const bAdd = card.querySelector('[data-role="marginAdd"]');
                 const bExtra = card.querySelector('[data-role="extra"]');
+                const bTotal = card.querySelector('[data-role="totalNeed"]');
+                const bNotional = card.querySelector('[data-role="notionalCny"]');
                 const note = card.querySelector('[data-role="note"]');
                 const has = Number(el.value) > 0;
                 if (bEntry) bEntry.textContent = has && Number.isFinite(plan.newEntry) ? formatAddCalcNum(plan.newEntry, 4) : '--';
-                if (bAdd) bAdd.textContent = has && Number.isFinite(plan.marginAdd) ? formatAddCalcNum(plan.marginAdd, 2) : '--';
+                if (bAdd) bAdd.textContent = has && Number.isFinite(plan.marginAdd) ? formatAddCalcUsdt(plan.marginAdd, 2) : '--';
                 if (bExtra) {
                     const extra = formatExtraKeepLiq(plan.extraKeepLiq);
                     bExtra.textContent = has ? extra.text : '--';
                     bExtra.className = has ? extra.cls : 'muted';
                 }
-                if (note) note.textContent = has ? (plan.note || '') : ('输入加仓名义 U（非保证金）· 当前杠杆 ' + (card.getAttribute('data-lev') || '--') + 'x · 按标记价同向加仓');
+                if (bTotal) {
+                    bTotal.textContent = has && Number.isFinite(plan.totalMarginNeed) ? formatAddCalcUsdt(plan.totalMarginNeed, 2) : '--';
+                    bTotal.className = has ? '' : 'muted';
+                }
+                if (bNotional) bNotional.textContent = has && Number.isFinite(Number(el.value)) ? formatAddCalcUsdt(Number(el.value), 2) : '';
+                if (note) note.textContent = has ? (plan.note || '') : ('输入加仓名义 U（非保证金）· 当前杠杆 ' + (card.getAttribute('data-lev') || '--') + 'x · 按标记价同向加仓 · 金额旁为约合人民币');
             } catch (err) { /* ignore */ }
         }
         window.onAddCalcInput = onAddCalcInput;
@@ -5341,6 +5373,12 @@
             document.querySelectorAll('.usdt-cny-note').forEach(function(note) {
                 note.textContent='（'+cnyOnly(Number(note.dataset.usdt))+'）';
             });
+            // 汇率到位后刷新加仓试算卡片上的人民币备注
+            try {
+                document.querySelectorAll('.pc-addcalc input').forEach(function(inp) {
+                    if (typeof onAddCalcInput === 'function') onAddCalcInput(inp);
+                });
+            } catch (e) {}
         }
 
         // 把币安/网络的原始报错翻译成人话，避免只看到 (451) 这种代码。
