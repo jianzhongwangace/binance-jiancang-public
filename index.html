@@ -2959,6 +2959,48 @@
             });
         }
 
+        // 5 分钟周期用折线（收盘价）；其它周期保持蜡烛图。切周期时按需销毁/重建 series，避免残留。
+        function isLineChartInterval(iv) { return iv === '5m'; }
+
+        function createChartSeries(chart, iv) {
+            const pal = lwcPalette();
+            if (isLineChartInterval(iv)) {
+                return chart.addLineSeries({
+                    color: pal.blue,
+                    lineWidth: 2,
+                    priceLineVisible: true,
+                    lastValueVisible: true,
+                    crosshairMarkerVisible: true
+                });
+            }
+            return chart.addCandlestickSeries({
+                upColor: pal.up, downColor: pal.down, borderUpColor: pal.up, borderDownColor: pal.down,
+                wickUpColor: pal.up, wickDownColor: pal.down, priceLineVisible: true, lastValueVisible: true
+            });
+        }
+
+        function ensureChartSeriesKind(st) {
+            if (!st || !st.chart) return;
+            const want = isLineChartInterval(st.interval) ? 'line' : 'candle';
+            if (st.series && st.seriesKind === want) return;
+            if (Array.isArray(st.lines)) {
+                st.lines.forEach(function (l) { try { st.series && st.series.removePriceLine(l); } catch (e) {} });
+                st.lines = [];
+            }
+            if (st.series) {
+                try { st.chart.removeSeries(st.series); } catch (e) {}
+                st.series = null;
+            }
+            st.series = createChartSeries(st.chart, st.interval);
+            st.seriesKind = want;
+        }
+
+        // OHLC 行 → 当前 series 所需数据；折线只用收盘价。st.rows 始终保留 OHLC 供建仓标记对齐。
+        function rowsForSeries(rows, iv) {
+            if (!isLineChartInterval(iv)) return rows;
+            return (rows || []).map(function (d) { return { time: d.time, value: d.close }; });
+        }
+
         function clearMiniSeries(st, loadingMsg) {
             if (!st || !st.series) return;
             try { st.series.setData([]); } catch (e) {}
@@ -3050,7 +3092,8 @@
                 setMiniNote(st, '');
                 st.retry = 0;
                 const firstOfInterval = st.loadedIv !== iv;
-                st.series.setData(rows);
+                ensureChartSeriesKind(st);
+                st.series.setData(rowsForSeries(rows, iv));
                 if (savedRange) {
                     try { st.chart.timeScale().setVisibleLogicalRange(savedRange); }
                     catch (e) { try { st.chart.timeScale().fitContent(); } catch (e2) {} }
@@ -3086,6 +3129,8 @@
             if (!st || !st.chart) return;
             if (st.interval === iv) return;
             st.interval = iv || '1h';
+            // 5m↔其它：先销毁旧 series 再建正确类型，避免蜡烛/折线残留
+            ensureChartSeriesKind(st);
             markMiniInterval(st);
             updateMiniLast(st);
             // 切周期：force 清旧图再拉，不用上一周期 K 顶上
@@ -3135,12 +3180,9 @@
                 handleScale: true,
                 localization: { priceFormatter: function (p) { return lwcFmt(p); } }
             });
-            const series = chart.addCandlestickSeries({
-                upColor: pal.up, downColor: pal.down, borderUpColor: pal.up, borderDownColor: pal.down,
-                wickUpColor: pal.up, wickDownColor: pal.down, priceLineVisible: true, lastValueVisible: true
-            });
             st.chart = chart;
-            st.series = series;
+            st.series = createChartSeries(chart, st.interval);
+            st.seriesKind = isLineChartInterval(st.interval) ? 'line' : 'candle';
             // 只阻断 click / dblclick（防止误触卡片“点开详情”）。
             // 注意：mousedown/mouseup/touch 绝不能拦截 —— lightweight-charts 拖动中把
             // mouseup/touchend 监听挂在 document 上，这里一拦截，松开鼠标也结束不了拖动。
@@ -6389,6 +6431,7 @@
             const st = ENTRY_CHART_STATE[frameId];
             if (!st || !st.chart) return;
             st.interval = interval || '1h';
+            ensureChartSeriesKind(st);
             markEntryChartInterval(st);
             const pal = lwcPalette();
             const reqId = (st.reqId = (st.reqId || 0) + 1);
@@ -6399,7 +6442,7 @@
                     return { time: bjShift(k[0]), open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]) };
                 }).filter(function (d) { return Number.isFinite(d.time) && Number.isFinite(d.close) && d.close > 0; });
                 if (!data.length) throw new Error('没有有效的 K 线数据');
-                st.series.setData(data);
+                st.series.setData(rowsForSeries(data, st.interval));
                 st.chart.timeScale().fitContent();
                 st.last = data[data.length - 1].close;
                 st.rows = data;
@@ -6472,12 +6515,9 @@
                 handleScale: true,
                 localization: { priceFormatter: function (p) { return lwcFmt(p); } }
             });
-            const series = chart.addCandlestickSeries({
-                upColor: pal.up, downColor: pal.down, borderUpColor: pal.up, borderDownColor: pal.down,
-                wickUpColor: pal.up, wickDownColor: pal.down, priceLineVisible: true, lastValueVisible: true
-            });
             fresh.chart = chart;
-            fresh.series = series;
+            fresh.series = createChartSeries(chart, fresh.interval);
+            fresh.seriesKind = isLineChartInterval(fresh.interval) ? 'line' : 'candle';
             box.querySelectorAll('.tv-iv').forEach(function (b) {
                 b.addEventListener('click', function () { switchEntryChartInterval(frameId, b.getAttribute('data-iv')); });
             });
