@@ -2908,16 +2908,86 @@
             });
         }
 
+        // 爆仓/建仓价若落在当前可见 K 线价格区间外，LWC 的 priceToCoordinate 会返回 null，
+        // 水平线与轴标签都会被裁掉。把绘制价钳到图内上下边内侧，标题仍写真实价格。
+        function panePriceBounds(st, insetPx) {
+            insetPx = (insetPx == null) ? 10 : insetPx;
+            if (!st || !st.series) return null;
+            let h = 0;
+            try {
+                if (st.body && st.body.clientHeight) h = st.body.clientHeight;
+                else if (st.h) h = st.h;
+                else if (st.chart && typeof st.chart.chartElement === 'function') {
+                    const ce = st.chart.chartElement();
+                    if (ce) h = ce.clientHeight;
+                }
+            } catch (e) {}
+            if (!(h > 20)) return null;
+            let pTop, pBot;
+            try {
+                pTop = st.series.coordinateToPrice(insetPx);
+                pBot = st.series.coordinateToPrice(h - insetPx);
+            } catch (e) { return null; }
+            if (pTop == null || pBot == null || !Number.isFinite(pTop) || !Number.isFinite(pBot)) return null;
+            const lo = Math.min(pTop, pBot), hi = Math.max(pTop, pBot);
+            if (!(hi > lo)) return null;
+            return { lo: lo, hi: hi };
+        }
+
+        function clampPriceToPane(st, price, insetPx) {
+            const b = panePriceBounds(st, insetPx);
+            if (!b || !Number.isFinite(price)) return { price: price, edge: null };
+            if (price < b.lo) return { price: b.lo, edge: 'bottom' };
+            if (price > b.hi) return { price: b.hi, edge: 'top' };
+            return { price: price, edge: null };
+        }
+
+        function priceLineTitle(kind, realPrice, edge) {
+            const mark = (edge === 'bottom') ? '▼' : (edge === 'top') ? '▲' : '';
+            // 钳制时标题带真实价，避免轴上显示的是边缘价造成误解
+            if (edge) return mark + kind + ' ' + lwcFmt(realPrice);
+            return kind;
+        }
+
+        function bindPriceLineClamp(st, applyFn) {
+            if (!st || !st.chart || st._liqClampBound) return;
+            st._liqClampBound = true;
+            st._liqClampApply = applyFn;
+            const kick = function () {
+                if (st._liqClampRaf) cancelAnimationFrame(st._liqClampRaf);
+                st._liqClampRaf = requestAnimationFrame(function () {
+                    st._liqClampRaf = 0;
+                    try { if (typeof st._liqClampApply === 'function') st._liqClampApply(st); } catch (e) {}
+                });
+            };
+            st._liqClampKick = kick;
+            try { st.chart.timeScale().subscribeVisibleLogicalRangeChange(kick); } catch (e) {}
+            try { st.chart.timeScale().subscribeVisibleTimeRangeChange(kick); } catch (e) {}
+        }
+
         function applyMiniLines(st) {
             if (!st || !st.series) return;
             const pal = lwcPalette();
             if (Array.isArray(st.lines)) st.lines.forEach(function (l) { try { st.series.removePriceLine(l); } catch (e) {} });
             st.lines = [];
             if (Number.isFinite(st.entry) && st.entry > 0) {
-                st.lines.push(st.series.createPriceLine({ price: st.entry, color: pal.amber, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '建仓' }));
+                const ce = clampPriceToPane(st, st.entry);
+                st.lines.push(st.series.createPriceLine({
+                    price: ce.price, color: pal.amber, lineWidth: 1, lineStyle: 2,
+                    axisLabelVisible: true, title: priceLineTitle('建仓', st.entry, ce.edge)
+                }));
             }
             if (Number.isFinite(st.liq) && st.liq > 0) {
-                st.lines.push(st.series.createPriceLine({ price: st.liq, color: pal.danger, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '爆仓' }));
+                const cl = clampPriceToPane(st, st.liq);
+                st.lines.push(st.series.createPriceLine({
+                    price: cl.price, color: pal.danger, lineWidth: 1, lineStyle: 2,
+                    axisLabelVisible: true, title: priceLineTitle('爆仓', st.liq, cl.edge)
+                }));
+            }
+            // 首帧 bounds 可能尚未就绪：下一帧再钳一次
+            if (!panePriceBounds(st) && (st.liq > 0 || st.entry > 0) && !st._liqClampRetry) {
+                st._liqClampRetry = true;
+                requestAnimationFrame(function () { st._liqClampRetry = false; try { applyMiniLines(st); } catch (e) {} });
             }
         }
 
@@ -3204,6 +3274,7 @@
             st.chart = chart;
             st.series = createChartSeries(chart, st.interval);
             st.seriesKind = isLineChartInterval(st.interval) ? 'line' : 'candle';
+            bindPriceLineClamp(st, applyMiniLines);
             // 只阻断 click / dblclick（防止误触卡片“点开详情”）。
             // 注意：mousedown/mouseup/touch 绝不能拦截 —— lightweight-charts 拖动中把
             // mouseup/touchend 监听挂在 document 上，这里一拦截，松开鼠标也结束不了拖动。
@@ -3250,6 +3321,7 @@
                 st.w = cw; st.h = ch;
                 try { st.chart.applyOptions({ width: cw, height: ch }); } catch (e) {}
                 try { syncUsOpenVlinePositions(st); } catch (e) {}
+                try { if (typeof st._liqClampKick === 'function') st._liqClampKick(); } catch (e) {}
             }
         }
 
@@ -6613,7 +6685,11 @@
         function applyChartSize(st) {
             if (!st || !st.chart || !st.body) return;
             const w = st.body.clientWidth, h = st.body.clientHeight;
-            if (w > 0 && h > 0) { try { st.chart.applyOptions({ width: w, height: h }); } catch (e) {} try { syncUsOpenVlinePositions(st); } catch (e) {} }
+            if (w > 0 && h > 0) {
+                try { st.chart.applyOptions({ width: w, height: h }); } catch (e) {}
+                try { syncUsOpenVlinePositions(st); } catch (e) {}
+                try { if (typeof st._liqClampKick === 'function') st._liqClampKick(); } catch (e) {}
+            }
         }
 
         function applyEntryPriceLines(st) {
@@ -6624,16 +6700,24 @@
             }
             st.lines = [];
             if (Number.isFinite(st.entry) && st.entry > 0) {
+                const ce = clampPriceToPane(st, st.entry);
+                const mark = (ce.edge === 'bottom') ? '▼' : (ce.edge === 'top') ? '▲' : '';
                 st.lines.push(st.series.createPriceLine({
-                    price: st.entry, color: pal.amber, lineWidth: 2, lineStyle: 2,
-                    axisLabelVisible: true, title: '建仓 ' + lwcFmt(st.entry)
+                    price: ce.price, color: pal.amber, lineWidth: 2, lineStyle: 2,
+                    axisLabelVisible: true, title: mark + '建仓 ' + lwcFmt(st.entry)
                 }));
             }
             if (Number.isFinite(st.liq) && st.liq > 0) {
+                const cl = clampPriceToPane(st, st.liq);
+                const mark = (cl.edge === 'bottom') ? '▼' : (cl.edge === 'top') ? '▲' : '';
                 st.lines.push(st.series.createPriceLine({
-                    price: st.liq, color: pal.danger, lineWidth: 1, lineStyle: 2,
-                    axisLabelVisible: true, title: '爆仓 ' + lwcFmt(st.liq)
+                    price: cl.price, color: pal.danger, lineWidth: 1, lineStyle: 2,
+                    axisLabelVisible: true, title: mark + '爆仓 ' + lwcFmt(st.liq)
                 }));
+            }
+            if (!panePriceBounds(st) && (st.liq > 0 || st.entry > 0) && !st._liqClampRetry) {
+                st._liqClampRetry = true;
+                requestAnimationFrame(function () { st._liqClampRetry = false; try { applyEntryPriceLines(st); } catch (e) {} });
             }
         }
 
@@ -6771,6 +6855,7 @@
             fresh.chart = chart;
             fresh.series = createChartSeries(chart, fresh.interval);
             fresh.seriesKind = isLineChartInterval(fresh.interval) ? 'line' : 'candle';
+            bindPriceLineClamp(fresh, applyEntryPriceLines);
             box.querySelectorAll('.tv-iv').forEach(function (b) {
                 b.addEventListener('click', function () { switchEntryChartInterval(frameId, b.getAttribute('data-iv')); });
             });
