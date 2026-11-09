@@ -1,6 +1,6 @@
 window.__BINANCE_SUBACCOUNT__={
     "updatedAt":  "2026-11-09T15:37:02+08:00",
-    "error":  "无法连接到远程服务器",
+    "error":  "基础连接已经关闭: 未能为 SSL/TLS 安全通道建立信任关系。",
     "account":  {
                     "walletBalance":  3731.19515095,
                     "totalWalletBalance":  3731.19515095,
