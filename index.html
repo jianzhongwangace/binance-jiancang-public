@@ -357,6 +357,12 @@
         .summary-line.primary-pnl.positive { border-left-color:var(--up); background:var(--up-bg); }
         .summary-line.pnl-highlight { background:#fff3a6; border:2px solid #e0ad00; border-left:6px solid #d99b00; color:#4a3600; box-shadow:0 2px 8px rgba(217,155,0,.25); }
         .summary-line.pnl-highlight .summary-value { color:#241b00; }
+        .data-age { font-size:10px; font-weight:600; color:#2563eb; margin-left:5px; white-space:nowrap; font-family:inherit; }
+        .summary-line .data-age, .data-age-slot .data-age { font-size:11px; font-weight:700; }
+        .summary-line.primary-pnl .data-age, .summary-line.pnl-highlight .data-age { font-size:12px; font-weight:700; color:#1d4ed8; }
+        .pc-info .data-age, .pc-realized .data-age, .pc-hold-mg .data-age, .pc-metrics .data-age, .pc-day .data-age, .pc-us .data-age, .pc-us-preline .data-age, .detail-metric .data-age {
+            display:block; margin-left:0; margin-top:1px; font-size:9px; font-weight:600; line-height:1.15; color:#2563eb;
+        }
 
         .icon {
             display: inline-block;
@@ -1041,10 +1047,10 @@
             <div id="positionHome" class="position-home">
                 <!-- 两个账户汇总卡：置顶显示 -->
                 <div class="summary">
-                    <div class="summary-line">💰 钱包余额: <span id="totalWalletUsdt">--</span> USDT（<span id="totalWalletCny">¥--</span>） · 初始保证金合计: <span id="totalInitMarginUsdt">--</span> USDT（<span id="totalMarginCny">¥--</span>） · <span id="cnyRateNote" style="font-size:11px;color:var(--muted);">币安 C2C 卖出汇率获取中…</span></div>
-                    <div class="summary-line primary-pnl pnl-highlight" id="mainPnlSummary">💵 未实现盈亏(API)：<span class="summary-value"><span id="totalPnlUsdt">--</span> USDT（<span id="totalPnlCny">¥--</span>）</span></div>
-                    <div class="summary-line">📊 收益率(ROE): <span id="totalPnlPercent">API未提供</span> · 可用: <span id="totalAvailableUsdt">--</span> USDT（<span id="totalAvailableCny">¥--</span>）</div>
-                    <div class="summary-line primary-pnl" id="mainEquitySummary">💎 账户权益(API)：<span class="summary-value"><span id="totalEquityUsdt">--</span> USDT（<span id="totalEquityCny">¥--</span>）</span></div>
+                    <div class="summary-line">💰 钱包余额: <span id="totalWalletUsdt">--</span> USDT（<span id="totalWalletCny">¥--</span>）<span id="ageWallet" class="data-age-slot"></span> · 初始保证金合计: <span id="totalInitMarginUsdt">--</span> USDT（<span id="totalMarginCny">¥--</span>）<span id="ageInitMargin" class="data-age-slot"></span> · <span id="cnyRateNote" style="font-size:11px;color:var(--muted);">币安 C2C 卖出汇率获取中…</span></div>
+                    <div class="summary-line primary-pnl pnl-highlight" id="mainPnlSummary">💵 未实现盈亏(API)：<span class="summary-value"><span id="totalPnlUsdt">--</span> USDT（<span id="totalPnlCny">¥--</span>）</span><span id="agePnl" class="data-age-slot"></span></div>
+                    <div class="summary-line">📊 收益率(ROE): <span id="totalPnlPercent">API未提供</span> · 可用: <span id="totalAvailableUsdt">--</span> USDT（<span id="totalAvailableCny">¥--</span>）<span id="ageAvail" class="data-age-slot"></span></div>
+                    <div class="summary-line primary-pnl" id="mainEquitySummary">💎 账户权益(API)：<span class="summary-value"><span id="totalEquityUsdt">--</span> USDT（<span id="totalEquityCny">¥--</span>）</span><span id="ageEquity" class="data-age-slot"></span></div>
                     <div id="mainFeeLine"></div>
                 </div>
 
@@ -3133,6 +3139,58 @@
             Object.keys(MINI_CHART.pool).forEach(function (k) { updateMiniAge(MINI_CHART.pool[k]); });
         }
 
+        function parseAgeTs(ts) {
+            if (ts == null || ts === '') return NaN;
+            if (typeof ts === 'number') {
+                if (!Number.isFinite(ts) || ts <= 0) return NaN;
+                return ts < 1e12 ? ts * 1000 : ts;
+            }
+            const n = Date.parse(String(ts));
+            return Number.isFinite(n) ? n : NaN;
+        }
+        function ageHtml(ts) {
+            const t = parseAgeTs(ts);
+            if (!Number.isFinite(t)) return '<span class="data-age">尚未刷新</span>';
+            let title = '';
+            try { title = ' title="' + escHtml(new Date(t).toLocaleString('zh-CN', { hour12: false })) + '"'; } catch (e) {}
+            return '<span class="data-age" data-ts="' + t + '"' + title + '>' + formatMiniAge(Date.now() - t) + '</span>';
+        }
+        function tickDataAges() {
+            document.querySelectorAll('.data-age[data-ts]').forEach(function (el) {
+                const t = Number(el.getAttribute('data-ts'));
+                if (!Number.isFinite(t) || t <= 0) return;
+                el.textContent = formatMiniAge(Date.now() - t);
+            });
+        }
+        function mainSyncTs() {
+            return parseAgeTs(typeof liveSyncMeta !== 'undefined' && liveSyncMeta && liveSyncMeta.updatedAt);
+        }
+        function subSyncTs() {
+            const live = window.__BINANCE_SUBACCOUNT__;
+            return parseAgeTs(live && live.updatedAt);
+        }
+        function markAgeTs(symbol) {
+            const t = (typeof observedAt !== 'undefined') ? observedAt[symbol] : NaN;
+            if (Number.isFinite(t) && t > 0 && typeof priceData !== 'undefined' && Number(priceData[symbol]) > 0) return t;
+            return mainSyncTs();
+        }
+        function usQuoteAgeTs(q, src) {
+            if (!q) return NaN;
+            const times = [];
+            if (src === 'pre' && Number(q.preTs) > 0) times.push(Number(q.preTs));
+            else if (Number(q.ts) > 0) times.push(Number(q.ts));
+            if (Number(q.fetchedAt) > 0) times.push(Number(q.fetchedAt));
+            if (!times.length) return NaN;
+            return Math.min.apply(null, times);
+        }
+        function fillAgeSlot(id, ts) {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = ageHtml(ts);
+        }
+        if (!window.__DATA_AGE_TICK__) {
+            window.__DATA_AGE_TICK__ = setInterval(function () { try { tickDataAges(); } catch (e) {} }, 1000);
+        }
+
         function isMiniVisible(st) {
             if (!st || !st.box || !st.box.isConnected) return false;
             const r = st.box.getBoundingClientRect();
@@ -3470,7 +3528,7 @@
                 setInterval(function () { syncMiniPositions(); }, 250); // 只跟随位置，不碰数据/图表内容
                 // 主/子/美股：视口内每一张可见卡每 60 秒自动清图重拉（无缓存）；失败不推进时间戳
                 setInterval(function () { autoReloadVisibleMiniCharts(); }, 60 * 1000);
-                setInterval(function () { updateAllMiniAges(); }, 1000); // 相对时间文案每秒刷新
+                setInterval(function () { updateAllMiniAges(); try { tickDataAges(); } catch (e) {} }, 1000); // 相对时间文案每秒刷新
             };
             if (document.body) boot();
             else document.addEventListener('DOMContentLoaded', boot);
@@ -4419,6 +4477,7 @@
     <script src="vendor/lightweight-charts.js"></script>
     <script>
         let CNY_RATE = NaN; // 只采用 Binance C2C USDT 卖出人民币报价，不使用 USD/CNY 替代值
+        let lastCnyAt = 0;
         let streamActive = true;
         let priceData = {};
         let lastUpdateTime = 0;
@@ -4681,7 +4740,7 @@
             }
             if(live.error && !(live.account && live.positions)){
                 grid.innerHTML='<div class="detail-empty">子账户同步失败：'+escHtml(friendlyApiError(live.error))+'</div>';
-                summary.innerHTML='<div class="summary-line lab-err">子账户数据暂不可用 · 同步时间 '+escHtml(live.updatedAt||'--')+'</div>';
+                summary.innerHTML='<div class="summary-line lab-err">子账户数据暂不可用 · 同步 '+ageHtml(live.updatedAt)+'</div>';
                 console.error('❌ 子账户同步失败:', live.error);
                 return;
             }
@@ -4699,8 +4758,10 @@
             }).join('');
             const __addFocusSub=snapshotAddCalcFocus(grid);
             const __scSub=captureScrollState(grid);
+            const subSync=live.updatedAt;
             grid.innerHTML=(keys.length?keys.map(function(symbol){const p=ps[symbol],c=subPositionConfig(symbol,p);
                 const x=subPositionNumbers(symbol,p)||{};
+                const markTs=markAgeTs(symbol);
                 const mUsdt=x.initM||0;
                 const mark=x.markValid?x.mark:0;
                 const entry=x.entry||0;
@@ -4718,20 +4779,21 @@
                 const amtAbs=Math.abs(Number(x.amt!=null?x.amt:(c.quantity!=null?c.quantity:(x.qty||0)))||0);
                 const notionalLive=(x.markValid&&amtAbs>0)?(amtAbs*x.mark):NaN;
                 const notionalUsdt=Number.isFinite(notionalLive)?notionalLive:Math.abs(Number(p.notional)||0);
-                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b></span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b></span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b></div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b></div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b></div><div><span>建仓价</span><b>${entry.toFixed(2)}</b></div><div><span>标记价</span><b>${fmt(mark)}</b></div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b></div><div><span>手续费</span><b class="muted">${feeT}</b></div><div><span>资金费</span><b class="muted">${fuT}</b></div><div><span>合计成本</span><b class="${costC}">${costT}</b></div><div><span>交易费率</span><b class="muted">${frT}</b></div></div></button>${addCalcCardHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}${usStockCardHtml(symbol, mark, 's', c.name, c.entryPrice, c.liqPrice)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
+                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b>${ageHtml(subSync)}</div><div><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div><span>资金费</span><b class="muted">${fuT}</b>${ageHtml(subSync)}</div><div><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div><div><span>交易费率</span><b class="muted">${frT}</b>${ageHtml(subSync)}</div></div></button>${addCalcCardHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}${usStockCardHtml(symbol, mark, 's', c.name, c.entryPrice, c.liqPrice)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
             restoreAddCalcFocus(grid, __addFocusSub);
             restoreScrollState(__scSub);
             // 图表同帧挂回（不重建、不重新取数），避免 5 秒重绘时图区闪一下占位文字
             if (typeof mountMiniCharts === 'function') mountMiniCharts();
             const wallet=Number(a.totalWalletBalance),initM=Number(a.totalPositionInitialMargin),upnl=a.totalUnrealizedProfit==null?NaN:Number(a.totalUnrealizedProfit),eq=Number(a.totalMarginBalance),avail=Number(a.availableBalance),hasUpnl=Number.isFinite(upnl),cls=!hasUpnl?'neutral':upnl>0?'positive':upnl<0?'negative':'neutral';
             const subErrNote = live.error ? (' · <span class="lab-err">最近同步失败（已保留上一份成功数据）：' + escHtml(friendlyApiError(live.error)) + '</span>') : '';
+            const subTs=live.updatedAt;
             summary.innerHTML=`
-                <div class="summary-line" style="font-size:11px;color:var(--muted);">子账户持仓合计 · ${keys.length} 个标的 · 同步 ${escHtml(live.updatedAt||'--')}${subErrNote}</div>
-                <div class="summary-line">💰 钱包余额(API): <span>${usdtCny(wallet)}</span> · 初始保证金合计(API): <span>${usdtCny(initM)}</span></div>
-                <div class="summary-line primary-pnl pnl-highlight ${cls}" id="subPnlSummary">💵 未实现盈亏(API)：<span class="summary-value">${usdtCny(hasUpnl?upnl:NaN,2,true)}</span></div>
-                <div class="summary-line">📊 收益率(ROE): <span class="neutral">API未提供</span> · 可用(API): <span>${usdtCny(avail)}</span></div>
-                <div class="summary-line primary-pnl ${cls}">💎 账户权益(API)：<span class="summary-value">${usdtCny(Number.isFinite(eq)?eq:NaN)}</span></div>
-                ${feeTotalsLine(live.positions || {}, '💸 全部品种累计费用')}`;
+                <div class="summary-line" style="font-size:11px;color:var(--muted);">子账户持仓合计 · ${keys.length} 个标的 · 同步 ${ageHtml(subTs)}${subErrNote}</div>
+                <div class="summary-line">💰 钱包余额(API): <span>${usdtCny(wallet)}</span>${ageHtml(subTs)} · 初始保证金合计(API): <span>${usdtCny(initM)}</span>${ageHtml(subTs)}</div>
+                <div class="summary-line primary-pnl pnl-highlight ${cls}" id="subPnlSummary">💵 未实现盈亏(API)：<span class="summary-value">${usdtCny(hasUpnl?upnl:NaN,2,true)}</span>${ageHtml(subTs)}</div>
+                <div class="summary-line">📊 收益率(ROE): <span class="neutral">API未提供</span> · 可用(API): <span>${usdtCny(avail)}</span>${ageHtml(subTs)}</div>
+                <div class="summary-line primary-pnl ${cls}">💎 账户权益(API)：<span class="summary-value">${usdtCny(Number.isFinite(eq)?eq:NaN)}</span>${ageHtml(subTs)}</div>
+                ${feeTotalsLine(live.positions || {}, '💸 全部品种累计费用', subTs)}`;
         }
         function showSubaccountHome(){
             activeSubaccountSymbol=null;
@@ -4757,7 +4819,7 @@
             document.getElementById('subaccountHome').style.display='none';
             document.getElementById('subaccountDetail').style.display='block';
             document.getElementById('subDetailTitle').textContent=c.name+' · 子账户持仓详情';
-            document.getElementById('subDetailMetrics').innerHTML=`<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(Number.isFinite(pnl)?pnl:NaN,2,true)}</strong></div><div class="detail-metric"><span>当前标记价</span><strong>${markPrice>0?markPrice.toFixed(2):'--'}</strong></div><div class="detail-metric"><span>收益率 ROE</span><strong class="${roeCls}">${roeText}</strong></div><div class="detail-metric"><span>方向 / 杠杆</span><strong>${c.side==='short'?'空头':'多头'} · ${c.leverage}x</strong></div>`;
+            document.getElementById('subDetailMetrics').innerHTML=`<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(Number.isFinite(pnl)?pnl:NaN,2,true)}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>当前标记价</span><strong>${markPrice>0?markPrice.toFixed(2):'--'}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>收益率 ROE</span><strong class="${roeCls}">${roeText}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>方向 / 杠杆</span><strong>${c.side==='short'?'空头':'多头'} · ${c.leverage}x</strong></div>`;
             document.getElementById('subDetailRisk').innerHTML=`产品：${escHtml(c.full)}<br>开仓价：${Number(c.entryPrice).toFixed(2)} · <strong>持仓数量：${quantity.toFixed(4)}</strong> · <strong>持仓价值：${Number.isFinite(positionValue)&&markPrice>0?positionValue.toFixed(2):'--'} USDT</strong> ${Number.isFinite(positionValue)&&markPrice>0?'（'+cnyOnly(positionValue)+'）':''} · 初始保证金(API)：${usdtCny(x.initM)} · 名义价值(API)：${usdtCny(p.notional)}<br>未实现盈亏（有行情时即时验算）：${Number.isFinite(pnl)?usdtCny(pnl,2,true):'--'} · 快照未实现(API)：${p.unRealizedProfit!=null&&Number.isFinite(Number(p.unRealizedProfit))?usdtCny(Number(p.unRealizedProfit),2,true):'--'}<br>强平价(API)：${Number(c.liqPrice)>0?Number(c.liqPrice).toFixed(2):'--'} · 保证金模式：${escHtml(c.mode)}`;
         }
 
@@ -5374,13 +5436,14 @@
             return (v > 0 ? '+' : '-') + Math.abs(v).toFixed(4);
         }
         // 一行汇总文案：合计成本（手续费 + 资金费），带明细与人民币换算
-        function feeTotalsLine(positions, label) {
+        function feeTotalsLine(positions, label, ts) {
             const t = accountFeeTotals(positions);
             const known = t.hasFee || t.hasFund;
             const cls = !known || t.total === 0 ? 'neutral' : t.total < 0 ? 'negative' : 'positive';
             const cny = Number.isFinite(CNY_RATE) && known ? cnyOnly(t.total) : '¥--';
+            const age = known ? ageHtml(ts != null ? ts : mainSyncTs()) : '';
             return '<div class="summary-line ' + cls + '" title="当前所有持仓自首笔成交起累计（币安 income 流水，近 90 天内）；手续费 + 资金费 = 合计成本">' +
-                label + '：<span class="summary-value">' + (known ? fmtSigned4(t.total) + ' USDT（' + cny + '）' : '--') + '</span>' +
+                label + '：<span class="summary-value">' + (known ? fmtSigned4(t.total) + ' USDT（' + cny + '）' : '--') + '</span>' + age +
                 (known ? ' <span style="color:var(--muted);font-size:11px;">（手续费 ' + fmtSigned4(t.fee) + ' · 资金费 ' + fmtSigned4(t.fund) + ' · ' + t.count + ' 个标的）</span>' : '') +
                 '</div>';
         }
@@ -5391,7 +5454,7 @@
             const acc = liveSyncMeta.account;
             const t = liveSyncMeta.updatedAt || '--';
             if (liveSyncMeta.error && !acc) {
-                el.innerHTML = `<span class="lab-err">持仓同步失败：${escHtml(friendlyApiError(liveSyncMeta.error))}</span> · <span class="lab-muted">同步时间 ${t}</span>`;
+                el.innerHTML = `<span class="lab-err">持仓同步失败：${escHtml(friendlyApiError(liveSyncMeta.error))}</span> · <span class="lab-muted">同步 ${ageHtml(liveSyncMeta.updatedAt)}</span>`;
                 return;
             }
             if (!acc) {
@@ -5421,7 +5484,7 @@
             const upnlStr = Number.isFinite(upnl) ? usdtCny(upnl, 2, true) : usdtCny(NaN);
             const eqStr = Number.isFinite(equity) ? equity.toFixed(2) : '--';
             const errKeep = liveSyncMeta.error ? ` · <span class="lab-err">最近同步失败（已保留成功快照）：${escHtml(friendlyApiError(liveSyncMeta.error))}</span>` : '';
-            el.innerHTML = `钱包 <strong>${usdtCny(wallet)}</strong> · uPnL(API) <strong>${upnlStr}</strong> · 权益 <strong>${usdtCny(equity)}</strong> · 可用 <strong>${usdtCny(avail)}</strong> · 持仓 ${n} · 同步 ${t}${flatNote}${staleNote}${errKeep}`;
+            el.innerHTML = `钱包 <strong>${usdtCny(wallet)}</strong>${ageHtml(t)} · uPnL(API) <strong>${upnlStr}</strong>${ageHtml(t)} · 权益 <strong>${usdtCny(equity)}</strong>${ageHtml(t)} · 可用 <strong>${usdtCny(avail)}</strong>${ageHtml(t)} · 持仓 ${n} · 同步 ${ageHtml(t)}${flatNote}${staleNote}${errKeep}`;
             el.className = liveSyncMeta.error ? 'lab-err' : 'lab-ok';
         }
 
@@ -5678,7 +5741,8 @@
                     const rate = source.parse(data);
                     if (!Number.isFinite(rate) || rate < 6 || rate > 8) { lastErr = source.name + ' 无效(' + rate + ')'; continue; }
                     CNY_RATE = rate;
-                    if (note) note.textContent = `${source.name} ${rate.toFixed(4)} CNY/USDT（实时）`;
+                    lastCnyAt = Date.now();
+                    if (note) note.innerHTML = `${source.name} ${rate.toFixed(4)} CNY/USDT` + ageHtml(lastCnyAt);
                     console.log('✅ 汇率获取成功:', source.name, rate);
                     refreshCnyAmountNotes();
                     renderFeed();
@@ -5694,8 +5758,8 @@
 
             // 所有API都失败
             const hint = '；若持续失败请检查网络/VPN，后台同步会自动重试';
-            if (note) note.textContent = Number.isFinite(CNY_RATE)
-                ? `使用上次汇率 ${CNY_RATE.toFixed(4)} CNY/USDT（刷新失败：${lastErr}${hint}）`
+            if (note) note.innerHTML = Number.isFinite(CNY_RATE)
+                ? `使用上次汇率 ${CNY_RATE.toFixed(4)} CNY/USDT` + (lastCnyAt ? ageHtml(lastCnyAt) : '') + `（刷新失败：${lastErr}${hint}）`
                 : `所有汇率源不可用（${lastErr}${hint}），人民币显示 --`;
             console.error('❌ 所有汇率源失败:', lastErr);
         }
@@ -5952,32 +6016,34 @@
                 const feeText = fmtSigned(feeVal);
                 const frText = (Number.isFinite(frVal) && frVal > 0) ? (frVal * 100).toFixed(4) + '%' : '--';
                 const rpCls = !Number.isFinite(rpVal) || rpVal === 0 ? 'muted' : rpVal > 0 ? 'positive' : 'negative';
+                const markTs = markAgeTs(symbol);
+                const syncTs = mainSyncTs();
                 // 同一品种一行三列：币安卡 | 加仓试算（最窄） | 美股正股卡
                 cards += '<div class="pc-pair" id="position-' + symbol + '">' +
                     '<button class="position-card ' + cls + '" onclick="showPositionDetail(&quot;' + escHtml(symbol) + '&quot;)" aria-label="查看' + escHtml(c.name) + '详情">' +
                     '<div class="pc-head"><span class="pc-name">' + escHtml(c.name) + '</span>' +
                     '<span class="pc-metrics">' +
-                    '<span class="pc-roe"><i>收益率</i><b class="' + roeCls + '">' + roeText + '</b></span>' +
+                    '<span class="pc-roe"><i>收益率</i><b class="' + roeCls + '">' + roeText + '</b>' + ageHtml(markTs) + '</span>' +
                     dayChangeHtml(symbol, x.price) +
-                    '<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</b></span>' +
+                    '<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</b>' + ageHtml(markTs) + '</span>' +
                     '</span>' +
                     '</div>' +
                     '<div class="pc-hold-mg" title="持仓=名义价值（|positionAmt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin">' +
-                    '<div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b></div>' +
-                    '<div class="pc-mg"><i>保证金</i><b>' + usdtCny(marginUsdt) + '</b></div></div>' +
+                    '<div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b>' + ageHtml(markTs) + '</div>' +
+                    '<div class="pc-mg"><i>保证金</i><b>' + usdtCny(marginUsdt) + '</b>' + ageHtml(syncTs) + '</div></div>' +
                     usStockHtml(symbol, x.priceValid ? x.price : NaN) +
                     miniChartHtml('m', symbol, c.entryPrice, liq) +
-                    '<div class="pc-info"><div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b></div>' +
-                    '<div><span>保证金</span><b>' + usdtCny(marginUsdt) + '</b></div>' +
-                    '<div><span>爆仓价(API)</span><b>' + (Number.isFinite(liq) ? liq.toFixed(2) : '--') + '</b></div>' +
-                    '<div><span>建仓价</span><b>' + Number(c.entryPrice).toFixed(2) + '</b></div>' +
-                    '<div><span>标记价</span><b>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</b></div></div>' +
+                    '<div class="pc-info"><div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b>' + ageHtml(markTs) + '</div>' +
+                    '<div><span>保证金</span><b>' + usdtCny(marginUsdt) + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>爆仓价(API)</span><b>' + (Number.isFinite(liq) ? liq.toFixed(2) : '--') + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>建仓价</span><b>' + Number(c.entryPrice).toFixed(2) + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>标记价</span><b>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</b>' + ageHtml(markTs) + '</div></div>' +
                     '<div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口">' +
-                    '<div><span>已实现盈亏</span><b class="' + rpCls + '">' + rpText + '</b></div>' +
-                    '<div><span>手续费</span><b class="muted">' + feeText + '</b></div>' +
-                    '<div><span>资金费</span><b class="muted">' + fuText2 + '</b></div>' +
-                    '<div><span>合计成本</span><b class="' + costCls2 + '">' + costText2 + '</b></div>' +
-                    '<div><span>交易费率</span><b class="muted">' + frText + '</b></div></div></button>' +
+                    '<div><span>已实现盈亏</span><b class="' + rpCls + '">' + rpText + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>手续费</span><b class="muted">' + feeText + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>资金费</span><b class="muted">' + fuText2 + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>合计成本</span><b class="' + costCls2 + '">' + costText2 + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>交易费率</span><b class="muted">' + frText + '</b>' + ageHtml(syncTs) + '</div></div></button>' +
                     addCalcCardHtml('m', symbol, c, x.priceValid ? x.price : (Number(c.markPrice) || 0)) +
                     usStockCardHtml(symbol, x.priceValid ? x.price : NaN, 'm', c.name, c.entryPrice, c.liqPrice) +
                     '</div>';
@@ -6055,9 +6121,9 @@
             const _roe = (x.valid && x.initM > 0) ? (x.pnlUsdt / x.initM) * 100 : NaN;
             const _roeCls = !Number.isFinite(_roe) ? 'neutral' : _roe > 0 ? 'positive' : _roe < 0 ? 'negative' : 'neutral';
             const _roeText = Number.isFinite(_roe) ? ((_roe > 0 ? '+' : '') + _roe.toFixed(2) + '%') : '--';
-            document.getElementById('detailMetrics').innerHTML = `<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnlCls}">${usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true)}</strong></div>
-                <div class="detail-metric"><span>当前标记价</span><strong>${x.priceValid ? x.price.toFixed(2) : '--'}</strong></div>
-                <div class="detail-metric"><span>收益率 ROE</span><strong class="${_roeCls}">${_roeText}</strong></div>`;
+            document.getElementById('detailMetrics').innerHTML = `<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnlCls}">${usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true)}</strong>${ageHtml(markAgeTs(symbol))}</div>
+                <div class="detail-metric"><span>当前标记价</span><strong>${x.priceValid ? x.price.toFixed(2) : '--'}</strong>${ageHtml(markAgeTs(symbol))}</div>
+                <div class="detail-metric"><span>收益率 ROE</span><strong class="${_roeCls}">${_roeText}</strong>${ageHtml(markAgeTs(symbol))}</div>`;
             detailChartEvents = relatedEvents(c, false).concat(relatedEvents(c, true)).sort(function(a,b){ return new Date(a.d)-new Date(b.d); });
             renderEventList('detailNews', relatedEvents(c, false), '暂无匹配的近期大事');
             renderEventList('detailCalendar', relatedEvents(c, true), '暂无匹配的未来事件');
@@ -6216,6 +6282,12 @@
             document.getElementById('totalPnlPercent').className = totalPnlClass;
             const mainPnlSummary = document.getElementById('mainPnlSummary'); if (mainPnlSummary) mainPnlSummary.className = 'summary-line primary-pnl pnl-highlight ' + totalPnlClass;
             const mainEquitySummary = document.getElementById('mainEquitySummary'); if (mainEquitySummary) mainEquitySummary.className = 'summary-line primary-pnl ' + totalPnlClass;
+            const syncTs = mainSyncTs();
+            fillAgeSlot('ageWallet', syncTs);
+            fillAgeSlot('ageInitMargin', syncTs);
+            fillAgeSlot('agePnl', syncTs);
+            fillAgeSlot('ageAvail', syncTs);
+            fillAgeSlot('ageEquity', syncTs);
             // 账户 API 盈亏已在上方「未实现盈亏(API)」展示，不再重复脚注
             const now = new Date();
             document.getElementById('updateTime').textContent = '最后更新: ' + now.toLocaleString('zh-CN', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
@@ -6225,9 +6297,9 @@
                 const roe = (x.valid && x.initM > 0) ? (x.pnlUsdt / x.initM) * 100 : NaN;
                 const roeCls = !Number.isFinite(roe) ? 'neutral' : roe > 0 ? 'positive' : roe < 0 ? 'negative' : 'neutral';
                 const roeText = Number.isFinite(roe) ? ((roe > 0 ? '+' : '') + roe.toFixed(2) + '%') : '--';
-                document.getElementById('detailMetrics').innerHTML = '<div class="detail-metric"><span>未实现盈亏</span><strong class="' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</strong></div>' +
-                    '<div class="detail-metric"><span>当前标记价</span><strong>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</strong></div>' +
-                    '<div class="detail-metric"><span>收益率 ROE</span><strong class="' + roeCls + '">' + roeText + '</strong></div>';
+                document.getElementById('detailMetrics').innerHTML = '<div class="detail-metric"><span>未实现盈亏</span><strong class="' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</strong>' + ageHtml(markAgeTs(activeDetailSymbol)) + '</div>' +
+                    '<div class="detail-metric"><span>当前标记价</span><strong>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</strong>' + ageHtml(markAgeTs(activeDetailSymbol)) + '</div>' +
+                    '<div class="detail-metric"><span>收益率 ROE</span><strong class="' + roeCls + '">' + roeText + '</strong>' + ageHtml(markAgeTs(activeDetailSymbol)) + '</div>';
                 renderRiskDetail(x);
             }
             if (activeSubaccountSymbol) {
@@ -7581,7 +7653,11 @@
                     })();
                 }));
             } catch (e) {}
-            if (Object.keys(next).length) US_STOCK_QUOTES = next;
+            if (Object.keys(next).length) {
+                const fetchedAt = Date.now();
+                Object.keys(next).forEach(function (k) { if (!next[k].fetchedAt) next[k].fetchedAt = fetchedAt; });
+                US_STOCK_QUOTES = next;
+            }
             // 报价到位后立刻重绘一次，不等下一个刷新周期
             try { if (typeof renderPositionHome === 'function') renderPositionHome(); } catch (e) {}
             try { if (typeof renderSubaccount === 'function') renderSubaccount(); } catch (e) {}
@@ -7629,20 +7705,21 @@
                 premTxt = (pv > 0 ? '+' : '') + pv.toFixed(2) + '%';
             }
             const tsTxt = (live.src === 'pre' && q.preTimeTxt) ? q.preTimeTxt : (q.ts ? new Date(q.ts).toLocaleTimeString('zh-CN', { hour12: false }) : '');
+            const usAge = ageHtml(usQuoteAgeTs(q, live.src));
             let preLine = '';
             if (sessNow === 'pre') {
                 if (Number(q.prePrice) > 0) {
                     const pcls = q.prePct > 0 ? 'positive' : q.prePct < 0 ? 'negative' : 'neutral';
                     const pp = Number.isFinite(q.prePct) ? ((q.prePct > 0 ? '+' : '') + q.prePct.toFixed(2) + '%') : '--';
-                    preLine = '<span><i>盘前价</i><b>' + Number(q.prePrice).toFixed(2) + '</b><b class="' + pcls + '">' + pp + '</b></span>';
+                    preLine = '<span><i>盘前价</i><b>' + Number(q.prePrice).toFixed(2) + '</b><b class="' + pcls + '">' + pp + '</b>' + ageHtml(usQuoteAgeTs(q, 'pre')) + '</span>';
                 } else {
                     preLine = '<span><i>盘前价</i><b class="muted">暂无盘前</b></span>';
                 }
             }
-            return '<div class="pc-us" title="' + escHtml(m.label + ' · 数据源：腾讯+百度盘前 · 盘前约15秒刷新' + (tsTxt ? ' · ' + tsTxt : '') + (m.soft ? ' · 期货价格，与现货存在升水，溢价仅供参考' : '')) + '">' +
-                '<span><i>美股 ' + escHtml(m.ticker) + '</i>' + usSessBadgeHtml(sessNow) + '<b>' + (Number(live.price) > 0 ? Number(live.price).toFixed(2) : '--') + '</b><i style="font-size:8px">(' + usPriceSessHint(q, live.sess) + ')</i><b class="' + cls + '">' + pctTxt + '</b></span>' +
+            return '<div class="pc-us" title="' + escHtml(m.label + ' · 数据源：腾讯+百度盘前' + (tsTxt ? ' · ' + tsTxt : '') + (m.soft ? ' · 期货价格，与现货存在升水，溢价仅供参考' : '')) + '">' +
+                '<span><i>美股 ' + escHtml(m.ticker) + '</i>' + usSessBadgeHtml(sessNow) + '<b>' + (Number(live.price) > 0 ? Number(live.price).toFixed(2) : '--') + '</b><i style="font-size:8px">(' + usPriceSessHint(q, live.sess) + ')</i><b class="' + cls + '">' + pctTxt + '</b>' + usAge + '</span>' +
                 preLine +
-                '<span><i>永续溢价</i><b class="' + premCls + '">' + (premTxt || '--') + '</b></span></div>';
+                '<span><i>永续溢价</i><b class="' + premCls + '">' + (premTxt || '--') + '</b>' + usAge + '</span></div>';
         }
 
         // 美股正股专属卡片：与币安持仓卡并列显示（原卡片保留不动），同品种只出现一张
@@ -7709,33 +7786,33 @@
                     const pcls = q.prePct > 0 ? 'positive' : q.prePct < 0 ? 'negative' : 'neutral';
                     const pp = Number.isFinite(q.prePct) ? ((q.prePct > 0 ? '+' : '') + Number(q.prePct).toFixed(2) + '%') : '--';
                     preBlock = '<div class="pc-us-preline" title="盘前价来自百度股市通 JSONP（相对正式收盘）' + (q.preTimeTxt ? ' · ' + q.preTimeTxt : '') + '">' +
-                        '<span><i>盘前价</i> <b>' + Number(q.prePrice).toFixed(2) + '</b> <b class="' + pcls + '">' + pp + '</b></span>' +
-                        '<span><i>收盘价</i> <b class="muted">' + n2(q.price) + '</b></span></div>';
+                        '<span><i>盘前价</i> <b>' + Number(q.prePrice).toFixed(2) + '</b> <b class="' + pcls + '">' + pp + '</b>' + ageHtml(usQuoteAgeTs(q, 'pre')) + '</span>' +
+                        '<span><i>收盘价</i> <b class="muted">' + n2(q.price) + '</b>' + ageHtml(usQuoteAgeTs(q, 'regular')) + '</span></div>';
                 } else {
                     preBlock = '<div class="pc-us-preline"><span><i>盘前价</i> <b class="muted">暂无盘前</b></span>' +
                         '<span><i>收盘价</i> <b>' + n2(q.price) + '</b></span></div>';
                 }
             } else if (Number(q.postPrice) > 0 && (sessNow === 'post' || sessNow === 'closed')) {
-                preBlock = '<div class="pc-us-preline" title="盘后价来自百度/腾讯延时"><span><i>盘后价</i> <b>' + Number(q.postPrice).toFixed(2) + '</b></span>' +
-                    '<span><i>收盘价</i> <b class="muted">' + n2(q.price) + '</b></span></div>';
+                preBlock = '<div class="pc-us-preline" title="盘后价来自百度/腾讯延时"><span><i>盘后价</i> <b>' + Number(q.postPrice).toFixed(2) + '</b>' + ageHtml(usQuoteAgeTs(q, live.src)) + '</span>' +
+                    '<span><i>收盘价</i> <b class="muted">' + n2(q.price) + '</b>' + ageHtml(usQuoteAgeTs(q, 'regular')) + '</span></div>';
             }
-            const refreshLbl = (sessNow === 'pre' || sessNow === 'post') ? '约15秒' : '60秒';
+            const usAge = ageHtml(usQuoteAgeTs(q, live.src));
             return '<div class="position-card pc-uscard" title="' + escHtml(m.label + ' · 真实美股行情（腾讯+百度盘前），非币安合成价格') + '">' +
                 '<div class="pc-head"><span class="pc-name">' + escHtml(q.name || m.ticker) +
                 ' <span class="pc-symbol">美股 · ' + escHtml(m.ticker) + '</span>' + usSessBadgeHtml(sessNow) + '</span>' +
                 '<span class="pc-metrics">' +
-                '<span class="pc-roe"><i>现价·' + usPriceSessHint(q, live.sess) + '</i><b>' + (Number(live.price) > 0 ? Number(live.price).toFixed(2) : '--') + '</b></span>' +
-                '<span class="pc-day">涨跌 <b class="' + cls + '">' + pctTxt + '</b></span>' +
-                '<span class="pc-pnl-row"><i>永续溢价</i><b class="pc-pnl ' + premCls + '">' + premTxt + '</b></span>' +
+                '<span class="pc-roe"><i>现价·' + usPriceSessHint(q, live.sess) + '</i><b>' + (Number(live.price) > 0 ? Number(live.price).toFixed(2) : '--') + '</b>' + usAge + '</span>' +
+                '<span class="pc-day">涨跌 <b class="' + cls + '">' + pctTxt + '</b>' + usAge + '</span>' +
+                '<span class="pc-pnl-row"><i>永续溢价</i><b class="pc-pnl ' + premCls + '">' + premTxt + '</b>' + usAge + '</span>' +
                 '</span><span class="pc-mg"><i>' + escHtml(tsTxt) + '</i></span></div>' +
                 preBlock +
                 usChartHtml(m.ticker, m.sec, scope, m.sina, entry, liq, (Number(live.price) > 0 ? live.price : 0)) +
-                '<div class="pc-info"><div><span>开盘</span><b>' + n2(q.open) + '</b></div>' +
-                '<div><span>最高</span><b>' + n2(q.high) + '</b></div>' +
-                '<div><span>最低</span><b>' + n2(q.low) + '</b></div>' +
-                '<div><span>昨收</span><b>' + n2(q.prev) + '</b></div></div>' +
+                '<div class="pc-info"><div><span>开盘</span><b>' + n2(q.open) + '</b>' + usAge + '</div>' +
+                '<div><span>最高</span><b>' + n2(q.high) + '</b>' + usAge + '</div>' +
+                '<div><span>最低</span><b>' + n2(q.low) + '</b>' + usAge + '</div>' +
+                '<div><span>昨收</span><b>' + n2(q.prev) + '</b>' + usAge + '</div></div>' +
                 '<div class="pc-realized"><div><span>数据源</span><b class="muted">腾讯+百度</b></div>' +
-                '<div><span>刷新</span><b class="muted">' + refreshLbl + '</b></div></div></div>';
+                '<div><span>刷新</span><b class="muted">' + usAge + '</b></div></div></div>';
         }
 
         function usStockCardsHtml(symbols, markOf) {
@@ -7776,7 +7853,7 @@
             const pct = valid ? ((p - o) / o) * 100 : NaN;
             const cls = !valid ? 'neutral' : pct > 0 ? 'positive' : pct < 0 ? 'negative' : 'neutral';
             const text = Number.isFinite(pct) ? (pct > 0 ? '+' : '') + pct.toFixed(2) + '%' : '--';
-            return '<span class="pc-day" title="当日 UTC 00:00 开盘价 → 最新价">今日涨跌 <b class="' + cls + '">' + text + '</b></span>';
+            return '<span class="pc-day" title="当日 UTC 00:00 开盘价 → 最新价">今日涨跌 <b class="' + cls + '">' + text + '</b>' + ageHtml(markAgeTs(symbol)) + '</span>';
         }
         function prefetchDayOpen() {
             const syms = Object.keys((typeof POSITIONS !== 'undefined' && POSITIONS) || {});
