@@ -559,12 +559,13 @@
         /* 持仓卡片：全部挤在一行内平分宽度，不滚动；卡内三组信息上下排布 */
         .position-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; overflow:visible; }
         @media (max-width:620px) { .position-grid { grid-template-columns:1fr; } }
-        /* 同一品种：币安持仓卡 + 美股正股卡 强制同一行（成对容器，避免错位） */
-        .pc-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; min-width:0; align-items:stretch; grid-column:1 / -1; }
+        /* 同一品种一行三列：币安持仓卡 | 加仓试算（最窄） | 美股正股卡 */
+        .pc-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(200px,240px) minmax(0,1fr); gap:8px; min-width:0; align-items:stretch; grid-column:1 / -1; }
         .pc-pair > .position-card { min-width:0; height:100%; }
-        /* 该品种没有对应美股卡时，单张卡跨满整行，不会缩在半边 */
+        .pc-pair > .pc-addcalc { min-width:0; height:auto; align-self:start; box-sizing:border-box; }
+        /* 该品种缺少左/右卡时，剩余卡仍铺满 */
         .pc-pair > .position-card:only-child { grid-column:1 / -1; }
-        @media (max-width:620px) { .pc-pair { grid-template-columns:1fr; } }
+        @media (max-width:900px) { .pc-pair { grid-template-columns:1fr; } }
         .position-grid > .position-card { min-width:0; }
         .position-grid > .detail-empty { grid-column:1 / -1; }
         .position-card { background:var(--card-bg); border:1px solid var(--border); border-top:3px solid var(--border-strong); border-radius:8px; padding:11px 10px; cursor:pointer; transition:transform .15s, box-shadow .15s, border-color .15s; min-height:0; }
@@ -662,37 +663,36 @@
         .pc-realized span { font-size:8.5px; color:var(--muted); line-height:1.3; white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
         .pc-realized b { font-size:9.5px; font-family:Consolas,monospace; color:var(--text-2); line-height:1.3; white-space:nowrap; }
         .pc-realized b.positive { color:var(--up); } .pc-realized b.negative { color:var(--down); } .pc-realized b.muted { color:var(--muted); }
-        /* 加仓试算小卡片：挂在币安持仓卡下方 */
+        /* 加仓试算小卡片：夹在币安卡与美股卡中间，窄列，输出框各占一行 */
         .pc-leftcol { display:flex; flex-direction:column; gap:6px; min-width:0; height:100%; }
         .pc-leftcol > .position-card { flex:1 1 auto; min-height:0; }
         .pc-pair > .pc-leftcol { min-width:0; }
-        .pc-addcalc { background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:7px; padding:8px 9px; cursor:default; box-shadow:inset 0 1px 0 rgba(255,255,255,.04); }
-        .pc-addcalc-title { font-size:11px; font-weight:700; color:#93c5fd; margin:0 0 6px; letter-spacing:.02em; display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; }
-        .pc-addcalc-title i { font-style:normal; font-size:9.5px; color:#94a3b8; font-weight:500; }
-        .pc-addcalc-title-meta { display:flex; flex-direction:column; align-items:flex-end; gap:2px; min-width:0; }
-        .pc-addcalc-title-meta .pc-addcalc-side { font-style:normal; font-size:9.5px; color:#94a3b8; font-weight:500; white-space:nowrap; }
-        .pc-addcalc-reallev { font-style:normal; font-size:9.5px; color:#fbbf24; font-weight:600; font-family:Consolas,monospace; white-space:nowrap; letter-spacing:0; }
-        .pc-addcalc-reallev i.lev3 { font-style:normal; color:#7dd3fc; font-size:9.5px; font-weight:700; }
+        .pc-addcalc { background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:6px; padding:4px 6px 3px; cursor:default; box-shadow:inset 0 1px 0 rgba(255,255,255,.04); }
+        .pc-addcalc-title { font-size:10px; font-weight:700; color:#93c5fd; margin:0 0 3px; letter-spacing:.02em; display:flex; align-items:flex-start; justify-content:space-between; gap:4px; flex-wrap:wrap; line-height:1.2; }
+        .pc-addcalc-title i { font-style:normal; font-size:8.5px; color:#94a3b8; font-weight:500; }
+        .pc-addcalc-title-meta { display:flex; flex-direction:column; align-items:flex-end; gap:0; min-width:0; line-height:1.2; }
+        .pc-addcalc-title-meta .pc-addcalc-side { font-style:normal; font-size:8.5px; color:#94a3b8; font-weight:500; white-space:nowrap; }
+        .pc-addcalc-reallev { font-style:normal; font-size:8.5px; color:#fbbf24; font-weight:600; font-family:Consolas,monospace; white-space:nowrap; letter-spacing:0; }
+        .pc-addcalc-reallev i.lev3 { font-style:normal; color:#7dd3fc; font-size:8.5px; font-weight:700; }
         .pc-addcalc-reallev.muted { color:#64748b; font-weight:500; }
-        .pc-addcalc-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
-        .pc-addcalc-row.pc-addcalc-row3 { margin-top:2px; padding-top:6px; border-top:1px dashed #334155; }
+        .pc-addcalc-row { display:flex; flex-wrap:nowrap; align-items:center; gap:4px; margin-bottom:3px; }
+        .pc-addcalc-row.pc-addcalc-row3 { margin-top:1px; padding-top:3px; border-top:1px dashed #334155; }
         .pc-addcalc-row.pc-addcalc-row3 > label { color:#fbbf24; }
         .pc-addcalc-row.pc-addcalc-row3 > input { border-color:#7c5a12; }
-        .pc-addcalc-row label { font-size:10px; color:#94a3b8; white-space:nowrap; flex:0 0 6.6em; width:6.6em; }
+        .pc-addcalc-row label { font-size:8.5px; color:#94a3b8; white-space:nowrap; flex:0 0 5.6em; width:5.6em; }
         .pc-addcalc-metrics > div.span2 { grid-column: 1 / -1; }
-        .pc-addcalc-row input { flex:1 1 auto; min-width:0; height:26px; border-radius:5px; border:1px solid #475569; background:#1e293b; color:#f8fafc; font-size:12px; font-family:Consolas,monospace; padding:0 8px; outline:none; }
-        .pc-addcalc-row input:focus { border-color:#60a5fa; box-shadow:0 0 0 2px rgba(96,165,250,.25); }
+        .pc-addcalc-row input { flex:1 1 auto; min-width:0; height:18px; border-radius:3px; border:1px solid #475569; background:#1e293b; color:#f8fafc; font-size:10.5px; font-family:Consolas,monospace; padding:0 5px; outline:none; box-sizing:border-box; }
+        .pc-addcalc-row input:focus { border-color:#60a5fa; box-shadow:0 0 0 1px rgba(96,165,250,.25); }
         .pc-addcalc-row input::-webkit-outer-spin-button, .pc-addcalc-row input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
         .pc-addcalc-row input[type=number], .pc-addcalc-row input[type=text] { -moz-appearance:textfield; appearance:textfield; }
-        .pc-addcalc-metrics { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px; }
-        .pc-addcalc-metrics > div { background:#1e293b; border:1px solid #334155; border-radius:5px; padding:5px 6px; min-width:0; }
-        .pc-addcalc-metrics span { display:block; font-size:9px; color:#94a3b8; line-height:1.2; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .pc-addcalc-metrics b { display:block; font-size:10.5px; font-family:Consolas,monospace; color:#f8fafc; font-weight:700; line-height:1.35; white-space:normal; word-break:break-word; }
+        .pc-addcalc-metrics { display:grid; grid-template-columns:1fr; gap:2px; }
+        .pc-addcalc-metrics > div { background:#1e293b; border:1px solid #334155; border-radius:4px; padding:2px 5px; min-width:0; }
+        .pc-addcalc-metrics span { display:block; font-size:8px; color:#94a3b8; line-height:1.15; margin-bottom:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .pc-addcalc-metrics b { display:block; font-size:9.5px; font-family:Consolas,monospace; color:#f8fafc; font-weight:700; line-height:1.25; white-space:normal; word-break:break-word; }
         .pc-addcalc-metrics b.pos { color:#4ade80; } .pc-addcalc-metrics b.neg { color:#f87171; } .pc-addcalc-metrics b.muted { color:#94a3b8; }
-        .pc-addcalc-metrics .pc-addcalc-brk { display:block; margin-top:2px; font-style:normal; font-size:9px; color:#94a3b8; font-family:Consolas,monospace; line-height:1.35; white-space:normal; word-break:break-word; }
-        .pc-addcalc-row .pc-addcalc-cnyhint { flex:0 0 auto; font-size:10px; color:#94a3b8; font-family:Consolas,monospace; min-width:4.5em; text-align:right; }
-        .pc-addcalc-note { margin-top:5px; font-size:9px; color:#64748b; line-height:1.45; }
-        @media (max-width:620px) { .pc-addcalc-metrics { grid-template-columns:1fr; } }
+        .pc-addcalc-metrics .pc-addcalc-brk { display:block; margin-top:0; font-style:normal; font-size:8px; color:#94a3b8; font-family:Consolas,monospace; line-height:1.2; white-space:normal; word-break:break-word; }
+        .pc-addcalc-row .pc-addcalc-cnyhint { flex:0 0 auto; font-size:8.5px; color:#94a3b8; font-family:Consolas,monospace; min-width:3em; text-align:right; }
+        .pc-addcalc-note { margin-top:3px; font-size:7.5px; color:#64748b; line-height:1.3; }
         .pc-price { color:var(--text-2); font-size:11px; }
         .pc-status { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .position-detail { display:none; }
@@ -4718,7 +4718,7 @@
                 const amtAbs=Math.abs(Number(x.amt!=null?x.amt:(c.quantity!=null?c.quantity:(x.qty||0)))||0);
                 const notionalLive=(x.markValid&&amtAbs>0)?(amtAbs*x.mark):NaN;
                 const notionalUsdt=Number.isFinite(notionalLive)?notionalLive:Math.abs(Number(p.notional)||0);
-                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><div class="pc-leftcol"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b></span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b></span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b></div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b></div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b></div><div><span>建仓价</span><b>${entry.toFixed(2)}</b></div><div><span>标记价</span><b>${fmt(mark)}</b></div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b></div><div><span>手续费</span><b class="muted">${feeT}</b></div><div><span>资金费</span><b class="muted">${fuT}</b></div><div><span>合计成本</span><b class="${costC}">${costT}</b></div><div><span>交易费率</span><b class="muted">${frT}</b></div></div></button>${addCalcCardHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}</div>${usStockCardHtml(symbol, mark, 's', c.name, c.entryPrice, c.liqPrice)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
+                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b></span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b></span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b></div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b></div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b></div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b></div><div><span>建仓价</span><b>${entry.toFixed(2)}</b></div><div><span>标记价</span><b>${fmt(mark)}</b></div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b></div><div><span>手续费</span><b class="muted">${feeT}</b></div><div><span>资金费</span><b class="muted">${fuT}</b></div><div><span>合计成本</span><b class="${costC}">${costT}</b></div><div><span>交易费率</span><b class="muted">${frT}</b></div></div></button>${addCalcCardHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}${usStockCardHtml(symbol, mark, 's', c.name, c.entryPrice, c.liqPrice)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
             restoreAddCalcFocus(grid, __addFocusSub);
             restoreScrollState(__scSub);
             // 图表同帧挂回（不重建、不重新取数），避免 5 秒重绘时图区闪一下占位文字
@@ -5097,7 +5097,7 @@
                 + ' oninput="onAddCalcInput(this)" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" />'
                 + '<span class="pc-addcalc-cnyhint" data-role="marginCny">' + escHtml(marginHint) + '</span></div>'
                 + '<div class="pc-addcalc-row pc-addcalc-row3"><label>第三次追加(U)</label>'
-                + '<input type="text" inputmode="decimal" autocomplete="off" placeholder="再补保证金，压低爆仓价" data-field="margin3"'
+                + '<input type="text" inputmode="decimal" autocomplete="off" placeholder="再补保证金" data-field="margin3"'
                 + ' value="' + escHtml(margin3Val) + '"'
                 + ' oninput="onAddCalcInput(this)" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" />'
                 + '<span class="pc-addcalc-cnyhint" data-role="margin3Cny">' + (margin3Num > 0 ? escHtml(formatAddCalcUsdt(margin3Num, 2)) : '') + '</span></div>'
@@ -5952,9 +5952,8 @@
                 const feeText = fmtSigned(feeVal);
                 const frText = (Number.isFinite(frVal) && frVal > 0) ? (frVal * 100).toFixed(4) + '%' : '--';
                 const rpCls = !Number.isFinite(rpVal) || rpVal === 0 ? 'muted' : rpVal > 0 ? 'positive' : 'negative';
-                // 同一品种：币安卡 + 美股正股卡 包在同一个成对容器里，保证两卡永远同一行
+                // 同一品种一行三列：币安卡 | 加仓试算（最窄） | 美股正股卡
                 cards += '<div class="pc-pair" id="position-' + symbol + '">' +
-                    '<div class="pc-leftcol">' +
                     '<button class="position-card ' + cls + '" onclick="showPositionDetail(&quot;' + escHtml(symbol) + '&quot;)" aria-label="查看' + escHtml(c.name) + '详情">' +
                     '<div class="pc-head"><span class="pc-name">' + escHtml(c.name) + '</span>' +
                     '<span class="pc-metrics">' +
@@ -5980,7 +5979,6 @@
                     '<div><span>合计成本</span><b class="' + costCls2 + '">' + costText2 + '</b></div>' +
                     '<div><span>交易费率</span><b class="muted">' + frText + '</b></div></div></button>' +
                     addCalcCardHtml('m', symbol, c, x.priceValid ? x.price : (Number(c.markPrice) || 0)) +
-                    '</div>' +
                     usStockCardHtml(symbol, x.priceValid ? x.price : NaN, 'm', c.name, c.entryPrice, c.liqPrice) +
                     '</div>';
             });
