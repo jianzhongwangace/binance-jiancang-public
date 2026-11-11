@@ -3063,38 +3063,31 @@
         function applyMiniLines(st) {
             if (!st || !st.series) return;
             const pal = lwcPalette();
+            refreshPriceScale(st);
             if (Array.isArray(st.lines)) st.lines.forEach(function (l) { try { st.series.removePriceLine(l); } catch (e) {} });
             st.lines = [];
             clearEdgeOverlays(st);
-            if (Number.isFinite(st.entry) && st.entry > 0) {
-                const ce = clampPriceToPane(st, st.entry);
+            function addLine(kind, price, color, width, style) {
+                if (!Number.isFinite(price) || !(price > 0)) return;
+                const visible = priceCoord(st, price) != null;
+                const cl = visible ? { price: price, edge: null } : clampPriceToPane(st, price);
                 st.lines.push(st.series.createPriceLine({
-                    price: ce.price, color: pal.amber, lineWidth: 1, lineStyle: 2,
-                    axisLabelVisible: !ce.edge, title: priceLineTitle('建仓', st.entry, ce.edge)
+                    price: visible ? price : cl.price, color: color, lineWidth: width, lineStyle: style,
+                    axisLabelVisible: visible || !cl.edge, title: priceLineTitle(kind, price, visible ? null : cl.edge)
                 }));
-                if (ce.edge) syncEdgeOverlay(st, '建仓', st.entry, ce.edge, pal.amber);
+                if (!visible && cl.edge) syncEdgeOverlay(st, kind, price, cl.edge, color);
             }
+            addLine('建仓', st.entry, pal.amber, 1, 2);
             // 现价线（目前只用于美股正股卡：data-cur 有值时画；币安卡不画，靠内置 lastValue 标签）
-            if (Number.isFinite(st.cur) && st.cur > 0) {
-                const cu = clampPriceToPane(st, st.cur);
-                st.lines.push(st.series.createPriceLine({
-                    price: cu.price, color: pal.blue, lineWidth: 1, lineStyle: 0,
-                    axisLabelVisible: !cu.edge, title: priceLineTitle('现价', st.cur, cu.edge)
-                }));
-                if (cu.edge) syncEdgeOverlay(st, '现价', st.cur, cu.edge, pal.blue);
-            }
-            if (Number.isFinite(st.liq) && st.liq > 0) {
-                const cl = clampPriceToPane(st, st.liq);
-                st.lines.push(st.series.createPriceLine({
-                    price: cl.price, color: pal.danger, lineWidth: 1, lineStyle: 2,
-                    axisLabelVisible: !cl.edge, title: priceLineTitle('爆仓', st.liq, cl.edge)
-                }));
-                if (cl.edge) syncEdgeOverlay(st, '爆仓', st.liq, cl.edge, pal.danger);
-            }
-            // 首帧 bounds 可能尚未就绪：下一帧再钳一次（避免无限 rAF）
-            if (!panePriceBounds(st) && (st.liq > 0 || st.entry > 0) && !st._liqClampRetry) {
-                st._liqClampRetry = true;
-                requestAnimationFrame(function () { st._liqClampRetry = false; try { applyMiniLines(st); } catch (e) {} });
+            addLine('现价', st.cur, pal.blue, 1, 0);
+            addLine('爆仓', st.liq, pal.danger, 1, 2);
+            // 首帧价格轴可能还没扩到建仓/爆仓：下一帧再画一次（避免无限 rAF）
+            if ((st.liq > 0 || st.entry > 0 || st.cur > 0) && !st._liqClampRetry) {
+                const missing = [st.entry, st.cur, st.liq].some(function (p) { return Number.isFinite(p) && p > 0 && priceCoord(st, p) == null; });
+                if (missing || !panePriceBounds(st)) {
+                    st._liqClampRetry = true;
+                    requestAnimationFrame(function () { st._liqClampRetry = false; try { applyMiniLines(st); } catch (e) {} });
+                }
             }
         }
 
@@ -3212,21 +3205,75 @@
         // 5 分钟周期用折线（收盘价）；其它周期保持蜡烛图。切周期时按需销毁/重建 series，避免残留。
         function isLineChartInterval(iv) { return iv === '5m'; }
 
-        function createChartSeries(chart, iv) {
+        // 价格轴必须把建仓 / 现价 / 爆仓三条线都包进可见区间，避免线被裁掉或叠在图边上互相挡住。
+        function chartRefPrices(st) {
+            const out = [];
+            if (!st) return out;
+            [st.entry, st.liq, st.cur, st.last].forEach(function (p) {
+                if (Number.isFinite(p) && p > 0) out.push(p);
+            });
+            return out;
+        }
+        function chartAutoscaleProvider(st) {
+            return function (original) {
+                const extras = chartRefPrices(st);
+                let res = null;
+                try { res = original ? original() : null; } catch (e) { res = null; }
+                let minV = NaN, maxV = NaN;
+                if (res && res.priceRange && Number.isFinite(res.priceRange.minValue) && Number.isFinite(res.priceRange.maxValue)) {
+                    minV = res.priceRange.minValue;
+                    maxV = res.priceRange.maxValue;
+                }
+                extras.forEach(function (p) {
+                    minV = Number.isFinite(minV) ? Math.min(minV, p) : p;
+                    maxV = Number.isFinite(maxV) ? Math.max(maxV, p) : p;
+                });
+                if (!Number.isFinite(minV) || !Number.isFinite(maxV)) return res;
+                if (!(maxV > minV)) {
+                    const pad0 = Math.abs(minV) * 0.02 || 1;
+                    minV -= pad0; maxV += pad0;
+                } else {
+                    const pad = (maxV - minV) * 0.04;
+                    minV -= pad; maxV += pad;
+                }
+                const out = res ? Object.assign({}, res) : {};
+                out.priceRange = { minValue: minV, maxValue: maxV };
+                return out;
+            };
+        }
+        function refreshPriceScale(st) {
+            if (!st || !st.series) return;
+            try { st.series.applyOptions({ autoscaleInfoProvider: chartAutoscaleProvider(st) }); } catch (e) {}
+            try {
+                const ps = (typeof st.series.priceScale === 'function') ? st.series.priceScale()
+                    : (st.chart && typeof st.chart.priceScale === 'function' ? st.chart.priceScale('right') : null);
+                if (ps && typeof ps.applyOptions === 'function') ps.applyOptions({ autoScale: true });
+            } catch (e) {}
+        }
+        function priceCoord(st, price) {
+            if (!st || !st.series || !Number.isFinite(price)) return null;
+            try {
+                const y = st.series.priceToCoordinate(price);
+                return (y == null || !Number.isFinite(y)) ? null : y;
+            } catch (e) { return null; }
+        }
+
+        function createChartSeries(chart, iv, st) {
             const pal = lwcPalette();
+            const scaleOpt = st ? { autoscaleInfoProvider: chartAutoscaleProvider(st) } : {};
             if (isLineChartInterval(iv)) {
-                return chart.addLineSeries({
+                return chart.addLineSeries(Object.assign({
                     color: pal.blue,
                     lineWidth: 2,
                     priceLineVisible: true,
                     lastValueVisible: true,
                     crosshairMarkerVisible: true
-                });
+                }, scaleOpt));
             }
-            return chart.addCandlestickSeries({
+            return chart.addCandlestickSeries(Object.assign({
                 upColor: pal.up, downColor: pal.down, borderUpColor: pal.up, borderDownColor: pal.down,
                 wickUpColor: pal.up, wickDownColor: pal.down, priceLineVisible: true, lastValueVisible: true
-            });
+            }, scaleOpt));
         }
 
         function ensureChartSeriesKind(st) {
@@ -3241,7 +3288,7 @@
                 try { st.chart.removeSeries(st.series); } catch (e) {}
                 st.series = null;
             }
-            st.series = createChartSeries(st.chart, st.interval);
+            st.series = createChartSeries(st.chart, st.interval, st);
             st.seriesKind = want;
         }
 
@@ -3431,7 +3478,7 @@
                 localization: { priceFormatter: function (p) { return lwcFmt(p); } }
             });
             st.chart = chart;
-            st.series = createChartSeries(chart, st.interval);
+            st.series = createChartSeries(chart, st.interval, st);
             st.seriesKind = isLineChartInterval(st.interval) ? 'line' : 'candle';
             bindPriceLineClamp(st, applyMiniLines);
             // 只阻断 click / dblclick（防止误触卡片“点开详情”）。
@@ -7139,30 +7186,31 @@
         function applyEntryPriceLines(st) {
             if (!st || !st.series) return;
             const pal = lwcPalette();
+            refreshPriceScale(st);
             if (Array.isArray(st.lines)) {
                 st.lines.forEach(function (l) { try { st.series.removePriceLine(l); } catch (e) {} });
             }
             st.lines = [];
             clearEdgeOverlays(st);
-            if (Number.isFinite(st.entry) && st.entry > 0) {
-                const ce = clampPriceToPane(st, st.entry);
+            function addLine(kind, price, color) {
+                if (!Number.isFinite(price) || !(price > 0)) return;
+                const visible = priceCoord(st, price) != null;
+                const cl = visible ? { price: price, edge: null } : clampPriceToPane(st, price);
                 st.lines.push(st.series.createPriceLine({
-                    price: ce.price, color: pal.amber, lineWidth: 2, lineStyle: 2,
-                    axisLabelVisible: !ce.edge, title: priceLineTitle('建仓', st.entry, ce.edge)
+                    price: visible ? price : cl.price, color: color, lineWidth: 2, lineStyle: 2,
+                    axisLabelVisible: visible || !cl.edge, title: priceLineTitle(kind, price, visible ? null : cl.edge)
                 }));
-                if (ce.edge) syncEdgeOverlay(st, '建仓', st.entry, ce.edge, pal.amber);
+                if (!visible && cl.edge) syncEdgeOverlay(st, kind, price, cl.edge, color);
             }
-            if (Number.isFinite(st.liq) && st.liq > 0) {
-                const cl = clampPriceToPane(st, st.liq);
-                st.lines.push(st.series.createPriceLine({
-                    price: cl.price, color: pal.danger, lineWidth: 2, lineStyle: 2,
-                    axisLabelVisible: !cl.edge, title: priceLineTitle('爆仓', st.liq, cl.edge)
-                }));
-                if (cl.edge) syncEdgeOverlay(st, '爆仓', st.liq, cl.edge, pal.danger);
-            }
-            if (!panePriceBounds(st) && (st.liq > 0 || st.entry > 0) && !st._liqClampRetry) {
-                st._liqClampRetry = true;
-                requestAnimationFrame(function () { st._liqClampRetry = false; try { applyEntryPriceLines(st); } catch (e) {} });
+            addLine('建仓', st.entry, pal.amber);
+            addLine('现价', (Number.isFinite(st.cur) && st.cur > 0) ? st.cur : st.last, pal.blue);
+            addLine('爆仓', st.liq, pal.danger);
+            if ((st.liq > 0 || st.entry > 0) && !st._liqClampRetry) {
+                const missing = [st.entry, st.liq, st.last].some(function (p) { return Number.isFinite(p) && p > 0 && priceCoord(st, p) == null; });
+                if (missing || !panePriceBounds(st)) {
+                    st._liqClampRetry = true;
+                    requestAnimationFrame(function () { st._liqClampRetry = false; try { applyEntryPriceLines(st); } catch (e) {} });
+                }
             }
         }
 
@@ -7298,7 +7346,7 @@
                 localization: { priceFormatter: function (p) { return lwcFmt(p); } }
             });
             fresh.chart = chart;
-            fresh.series = createChartSeries(chart, fresh.interval);
+            fresh.series = createChartSeries(chart, fresh.interval, fresh);
             fresh.seriesKind = isLineChartInterval(fresh.interval) ? 'line' : 'candle';
             bindPriceLineClamp(fresh, applyEntryPriceLines);
             box.querySelectorAll('.tv-iv').forEach(function (b) {
