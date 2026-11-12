@@ -3374,7 +3374,7 @@
             if (!MINI_CHART.pending[ck]) {
                 MINI_CHART.pending[ck] = (async function () {
                     try {
-                        const raw = (st.src === 'us') ? await fetchUSKlines(st.sina, iv, st.symbol, st.sec, (US_STOCK_MAP[st.symbol] || {}).fut) : await fetchChartKlines(st.symbol, iv);
+                        const raw = (st.src === 'us') ? await fetchUSKlines(st.sina, iv, st.symbol, st.sec, (US_STOCK_MAP[st.symbol] || {}).fut) : await fetchChartKlines(st.symbol, iv, true);
                         const tzShift = (st.src === 'us') ? 0 : CHART_TZ_SHIFT;
                         const mapped = (raw || []).map(function (k) {
                             return { time: Math.floor(Number(k[0]) / 1000) + tzShift, open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]) };
@@ -3420,7 +3420,8 @@
                 applyMiniLines(st);
                 applyEntryMarker(st, iv);
                 // 仅真实拉取成功才推进计时；失败路径不会走到这里
-                st.lastFetchOk = (res && res.ts) || Date.now();
+                st.lastFetchOk = Date.now();
+                updateMiniAge(st);
                 updateMiniLast(st);
             } catch (e) {
                 clearMiniSeries(st, 'K 线绘制失败');
@@ -3428,9 +3429,10 @@
         }
 
         function reloadMiniChart(st) {
-            if (!st || !st.chart) return;
+            if (!st || !st.chart) return Promise.resolve();
             if (st.src === 'us' && st.sina) delete US_DAILY_CACHE[st.sina];
-            loadMiniChart(st, true);
+            try { KLINE_CACHE.clear(); } catch (e) {}
+            return loadMiniChart(st, true);
         }
 
         function switchMiniInterval(st, iv) {
@@ -5201,16 +5203,18 @@
             const btns = document.querySelectorAll('.pc-refresh-all');
             btns.forEach(function (b) { b.disabled = true; b.textContent = '正在刷新…'; });
             try { if (typeof loadUSStockQuotes === 'function') loadUSStockQuotes(); } catch (e) {}
-            const pool = (window.MINI_CHART && MINI_CHART.pool) ? MINI_CHART.pool : {};
-            Object.keys(pool).forEach(function (k) {
+            // MINI_CHART 是脚本里的 const，不会挂到 window 上；必须直接用词法作用域里的对象
+            const pool = (typeof MINI_CHART !== 'undefined' && MINI_CHART && MINI_CHART.pool) ? MINI_CHART.pool : {};
+            const jobs = Object.keys(pool).map(function (k) {
                 const st = pool[k];
-                if (st && st.chart) {
-                    try { reloadMiniChart(st); } catch (e) {}
-                }
+                if (!st || !st.chart) return Promise.resolve();
+                try { return Promise.resolve(reloadMiniChart(st)); } catch (e) { return Promise.resolve(); }
             });
-            setTimeout(function () {
+            Promise.all(jobs).then(function () {
                 btns.forEach(function (b) { b.disabled = false; b.textContent = '一键刷新所有图表'; });
-            }, 1500);
+            }).catch(function () {
+                btns.forEach(function (b) { b.disabled = false; b.textContent = '一键刷新所有图表'; });
+            });
         }
         function addCalcCardHtml(acct, symbol, cfg, markPrice) {
             const entry = Number(cfg && cfg.entryPrice) || 0;
@@ -7194,7 +7198,7 @@
             KLINE_CACHE.set(key, { time: Date.now(), data: data });
         }
 
-        async function fetchChartKlines(symbol, interval) {
+        async function fetchChartKlines(symbol, interval, bypassCache) {
             const limit = ENTRY_CHART_LIMITS[interval] || 500;
             const qs = '?symbol=' + encodeURIComponent(symbol) + '&interval=' + encodeURIComponent(interval) + '&limit=' + limit;
             const urls = [
@@ -7224,11 +7228,13 @@
                 }
             }
 
-            // 所有API都失败，尝试使用缓存
-            const cached = getCachedKline(symbol, interval);
-            if (cached) {
-                console.warn('⚠️ K线API失败，使用缓存:', symbol, interval, cached.length, '条 (缓存)');
-                return cached;
+            // 手动/自动重拉时不回退到过期缓存，避免界面还显示旧 K 却当成刷新成功
+            if (!bypassCache) {
+                const cached = getCachedKline(symbol, interval);
+                if (cached) {
+                    console.warn('⚠️ K线API失败，使用缓存:', symbol, interval, cached.length, '条 (缓存)');
+                    return cached;
+                }
             }
 
             throw new Error(lastError);
