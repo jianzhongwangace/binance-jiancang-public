@@ -595,6 +595,8 @@
         .pc-refresh-all:hover { border-color:#60a5fa; color:#93c5fd; }
         .pc-refresh-all:active { background:#0f172a; }
         .pc-us-ohlc { margin-top:4px; padding-top:4px; border-top:1px dashed var(--border); }
+        .pc-us-chart-lab { font-size:10px; font-weight:700; color:var(--blue); margin:2px 0 0; }
+        .pc-us-ohlc .pc-chart { margin-top:2px; }
         .position-grid > .position-card { min-width:0; }
         .position-grid > .detail-empty { grid-column:1 / -1; }
         .position-card { background:var(--card-bg); border:1px solid var(--border); border-top:3px solid var(--border-strong); border-radius:8px; padding:11px 10px; cursor:pointer; transition:transform .15s, box-shadow .15s, border-color .15s; min-height:0; }
@@ -5057,7 +5059,7 @@
                     '<div><span>资金费</span><b class="muted">' + fuText2 + '</b>' + ageHtml(syncTs) + '</div>' +
                     '<div><span>合计成本</span><b class="' + costCls2 + '">' + costText2 + '</b>' + ageHtml(syncTs) + '</div>' +
                     '<div><span>交易费率</span><b class="muted">' + frText + '</b>' + ageHtml(syncTs) + '</div></div>' +
-                    usStockOhlcHtml(symbol) +
+                    usStockOhlcHtml(symbol, x.priceValid ? x.price : NaN, 'm', c.entryPrice, liq) +
                     '</button>' +
                     midColHtml('m', symbol, c, x.priceValid ? x.price : (Number(c.markPrice) || 0)) +
                     '</div>';
@@ -5088,7 +5090,7 @@
                 const amtAbs=Math.abs(Number(x.amt!=null?x.amt:(c.quantity!=null?c.quantity:(x.qty||0)))||0);
                 const notionalLive=(x.markValid&&amtAbs>0)?(amtAbs*x.mark):NaN;
                 const notionalUsdt=Number.isFinite(notionalLive)?notionalLive:Math.abs(Number(p.notional)||0);
-                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b>${ageHtml(subSync)}</div><div><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div><span>资金费</span><b class="muted">${fuT}</b>${ageHtml(subSync)}</div><div><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div><div><span>交易费率</span><b class="muted">${frT}</b>${ageHtml(subSync)}</div></div>${usStockOhlcHtml(symbol)}</button>${midColHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}</div>`;
+                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b>${ageHtml(subSync)}</div><div><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div><span>资金费</span><b class="muted">${fuT}</b>${ageHtml(subSync)}</div><div><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div><div><span>交易费率</span><b class="muted">${frT}</b>${ageHtml(subSync)}</div></div>${usStockOhlcHtml(symbol, mark, 's', entry, c.liqPrice)}</button>${midColHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}</div>`;
         }
 
         function renderSubaccount() {
@@ -7987,21 +7989,28 @@
             });
         }
 
-        function usStockOhlcHtml(symbol) {
+        function usStockOhlcHtml(symbol, mark, scope, entry, liq) {
             const m = US_STOCK_MAP[symbol];
             if (!m) return '';
             const q = US_STOCK_QUOTES[m.ticker];
-            if (!q || !(Number(q.price) > 0)) return '';
-            const live = usLiveQuote(q);
+            const live = (q && Number(q.price) > 0) ? usLiveQuote(q) : null;
+            const cur = (live && Number(live.price) > 0) ? live.price : (Number(mark) || 0);
             const n2 = function (v) { return Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v).toFixed(2) : '--'; };
-            const usAge = ageHtml(usQuoteAgeTs(q, live.src));
+            let ohlc = '';
+            if (q && Number(q.price) > 0) {
+                const usAge = ageHtml(usQuoteAgeTs(q, live.src));
+                ohlc = '<div class="pc-info"><div><span>开盘</span><b>' + n2(q.open) + '</b>' + usAge + '</div>' +
+                    '<div><span>最高</span><b>' + n2(q.high) + '</b>' + usAge + '</div>' +
+                    '<div><span>最低</span><b>' + n2(q.low) + '</b>' + usAge + '</div>' +
+                    '<div><span>昨收</span><b>' + n2(q.prev) + '</b>' + usAge + '</div></div>' +
+                    '<div class="pc-realized"><div><span>数据源</span><b class="muted">腾讯+百度</b></div>' +
+                    '<div><span>刷新</span><b class="muted">' + usAge + '</b></div></div>';
+            }
             return '<div class="pc-us-ohlc" title="美股正股行情（腾讯+百度），非币安合成价格">' +
-                '<div class="pc-info"><div><span>开盘</span><b>' + n2(q.open) + '</b>' + usAge + '</div>' +
-                '<div><span>最高</span><b>' + n2(q.high) + '</b>' + usAge + '</div>' +
-                '<div><span>最低</span><b>' + n2(q.low) + '</b>' + usAge + '</div>' +
-                '<div><span>昨收</span><b>' + n2(q.prev) + '</b>' + usAge + '</div></div>' +
-                '<div class="pc-realized"><div><span>数据源</span><b class="muted">腾讯+百度</b></div>' +
-                '<div><span>刷新</span><b class="muted">' + usAge + '</b></div></div></div>';
+                '<div class="pc-us-chart-lab">美股 · ' + escHtml(m.ticker) + ' 走势</div>' +
+                usChartHtml(m.ticker, m.sec, scope || 'm', m.sina, entry, liq, cur) +
+                ohlc +
+                '</div>';
         }
 
         function usStockHtml(symbol, markPrice) {
