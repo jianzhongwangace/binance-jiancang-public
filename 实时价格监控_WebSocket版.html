@@ -3107,8 +3107,8 @@
                 if (!visible && cl.edge) syncEdgeOverlay(st, kind, price, cl.edge, color);
             }
             addLine('建仓', st.entry, pal.amber, 1, 2);
-            // 现价线（目前只用于美股正股卡：data-cur 有值时画；币安卡不画，靠内置 lastValue 标签）
-            addLine('现价', st.cur, pal.blue, 1, 0);
+            // 现价只用这一条带标签的线（优先实时报价，否则用最新 K 线收盘）；关掉图表自带 lastValue，避免轴上多出一个未标注数字
+            addLine('现价', (Number.isFinite(st.cur) && st.cur > 0) ? st.cur : st.last, pal.blue, 1, 0);
             addLine('爆仓', st.liq, pal.danger, 1, 2);
             // 首帧价格轴可能还没扩到建仓/爆仓：下一帧再画一次（避免无限 rAF）
             if ((st.liq > 0 || st.entry > 0 || st.cur > 0) && !st._liqClampRetry) {
@@ -3325,14 +3325,14 @@
                 return chart.addLineSeries(Object.assign({
                     color: pal.blue,
                     lineWidth: 2,
-                    priceLineVisible: true,
-                    lastValueVisible: true,
+                    priceLineVisible: false,
+                    lastValueVisible: false,
                     crosshairMarkerVisible: true
                 }, scaleOpt));
             }
             return chart.addCandlestickSeries(Object.assign({
                 upColor: pal.up, downColor: pal.down, borderUpColor: pal.up, borderDownColor: pal.down,
-                wickUpColor: pal.up, wickDownColor: pal.down, priceLineVisible: true, lastValueVisible: true
+                wickUpColor: pal.up, wickDownColor: pal.down, priceLineVisible: false, lastValueVisible: false
             }, scaleOpt));
         }
 
