@@ -568,7 +568,10 @@
         /* 同一品种一行三列：币安持仓卡 | 加仓试算（最窄） | 美股正股卡 */
         .pc-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(200px,240px) minmax(0,1fr); gap:8px; min-width:0; align-items:stretch; grid-column:1 / -1; }
         .pc-pair > .position-card { min-width:0; height:100%; }
-        .pc-pair > .pc-addcalc { min-width:0; height:auto; align-self:start; box-sizing:border-box; }
+        .pc-pair > .pc-midcol { min-width:0; height:auto; align-self:start; display:flex; flex-direction:column; gap:6px; box-sizing:border-box; }
+        .pc-refresh-all { width:100%; box-sizing:border-box; margin:0; padding:5px 8px; font-size:11px; font-weight:600; line-height:1.2; color:#e2e8f0; background:#1e293b; border:1px solid #334155; border-radius:6px; cursor:pointer; }
+        .pc-refresh-all:hover { border-color:#60a5fa; color:#93c5fd; }
+        .pc-refresh-all:active { background:#0f172a; }
         /* 该品种缺少左/右卡时，剩余卡仍铺满 */
         .pc-pair > .position-card:only-child { grid-column:1 / -1; }
         @media (max-width:900px) { .pc-pair { grid-template-columns:1fr; } }
@@ -1071,6 +1074,10 @@
                                 <option value="dayChange">按今日涨跌</option>
                                 <option value="name">按名称</option>
                             </select>
+                            <select id="mainSortDirSelector" onchange="changeMainSortDir(this.value)" title="升序或降序" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer; margin-left: 4px;">
+                                <option value="desc" selected>降序</option>
+                                <option value="asc">升序</option>
+                            </select>
                         </span>
                     </div>
                 </div>
@@ -1155,6 +1162,10 @@
                                 <option value="pnlPercent">按收益率</option>
                                 <option value="dayChange">按今日涨跌</option>
                                 <option value="name">按名称</option>
+                            </select>
+                            <select id="subSortDirSelector" onchange="changeSubSortDir(this.value)" title="升序或降序" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer; margin-left: 4px;">
+                                <option value="desc" selected>降序</option>
+                                <option value="asc">升序</option>
                             </select>
                         </span>
                     </div>
@@ -4532,6 +4543,8 @@
         // 排序相关变量
         let mainSortMode = 'margin'; // margin, qty, liqBuffer, pnl, pnlPercent, dayChange, name
         let subSortMode = 'margin';
+        let mainSortDir = 'desc'; // desc=降序（默认，数值从大到小），asc=升序
+        let subSortDir = 'desc';
 
         const MODE_META = {
             isolated: { text: '逐仓', tip: '逐仓：每个仓位独立计算保证金与强平，亏损不牵连其他仓位' },
@@ -4539,13 +4552,38 @@
         };
 
         // ========== 排序功能 ==========
+        function naturalSortDir(mode) {
+            return (mode === 'name' || mode === 'liqBuffer') ? 'asc' : 'desc';
+        }
+        function withSortDir(cmp, mode, dir) {
+            const naturalAsc = (mode === 'name' || mode === 'liqBuffer');
+            const wantAsc = (dir === 'asc');
+            return function (a, b) {
+                const c = cmp(a, b);
+                return (wantAsc === naturalAsc) ? c : -c;
+            };
+        }
         function changeMainSort(mode) {
             mainSortMode = mode;
+            mainSortDir = naturalSortDir(mode);
+            const el = document.getElementById('mainSortDirSelector');
+            if (el) el.value = mainSortDir;
+            renderPositionHome();
+        }
+        function changeMainSortDir(dir) {
+            mainSortDir = (dir === 'asc') ? 'asc' : 'desc';
             renderPositionHome();
         }
 
         function changeSubSort(mode) {
             subSortMode = mode;
+            subSortDir = naturalSortDir(mode);
+            const el = document.getElementById('subSortDirSelector');
+            if (el) el.value = subSortDir;
+            renderSubaccount();
+        }
+        function changeSubSortDir(dir) {
+            subSortDir = (dir === 'asc') ? 'asc' : 'desc';
             renderSubaccount();
         }
 
@@ -4794,7 +4832,7 @@
 
             console.log('✅ 开始渲染子账户，持仓数量:', Object.keys(live.positions||{}).length);
 
-            const a=live.account||{}, ps=live.positions||{}, keys=Object.keys(ps).sort(getSubSortComparator(subSortMode, ps)), fmt=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'--';
+            const a=live.account||{}, ps=live.positions||{}, keys=Object.keys(ps).sort(withSortDir(getSubSortComparator(subSortMode, ps), subSortMode, subSortDir)), fmt=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'--';
             // 标记价 / 未实现 / ROE：走共享 subMarkPrice + subPositionNumbers（有最新行情时即时验算）
             // 主账户有持仓、子账户没有的同类产品：只列占位，不显示任何持仓数据
             const missing=Object.keys(POSITIONS).filter(function(s){return !(s in ps);});
@@ -4826,7 +4864,7 @@
                 const amtAbs=Math.abs(Number(x.amt!=null?x.amt:(c.quantity!=null?c.quantity:(x.qty||0)))||0);
                 const notionalLive=(x.markValid&&amtAbs>0)?(amtAbs*x.mark):NaN;
                 const notionalUsdt=Number.isFinite(notionalLive)?notionalLive:Math.abs(Number(p.notional)||0);
-                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b>${ageHtml(subSync)}</div><div><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div><span>资金费</span><b class="muted">${fuT}</b>${ageHtml(subSync)}</div><div><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div><div><span>交易费率</span><b class="muted">${frT}</b>${ageHtml(subSync)}</div></div></button>${addCalcCardHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}${usStockCardHtml(symbol, mark, 's', c.name, c.entryPrice, c.liqPrice)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
+                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b>${ageHtml(subSync)}</div><div><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div><span>资金费</span><b class="muted">${fuT}</b>${ageHtml(subSync)}</div><div><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div><div><span>交易费率</span><b class="muted">${frT}</b>${ageHtml(subSync)}</div></div></button>${midColHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}${usStockCardHtml(symbol, mark, 's', c.name, c.entryPrice, c.liqPrice)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
             restoreAddCalcFocus(grid, __addFocusSub);
             restoreScrollState(__scSub);
             // 图表同帧挂回（不重建、不重新取数），避免 5 秒重绘时图区闪一下占位文字
@@ -5153,6 +5191,26 @@
             if (c > 0) s += ' + 第三次 ' + c.toFixed(2);
             if (Number.isFinite(plan.totalNeedAll)) s += ' = ' + plan.totalNeedAll.toFixed(2) + ' U';
             return s;
+        }
+        function midColHtml(acct, symbol, cfg, markPrice) {
+            return '<div class="pc-midcol">' + addCalcCardHtml(acct, symbol, cfg, markPrice)
+                + '<button type="button" class="pc-refresh-all" title="重新拉取所有币安卡和美股卡的 K 线"'
+                + ' onclick="event.stopPropagation();refreshAllMiniCharts();">一键刷新所有图表</button></div>';
+        }
+        function refreshAllMiniCharts() {
+            const btns = document.querySelectorAll('.pc-refresh-all');
+            btns.forEach(function (b) { b.disabled = true; b.textContent = '正在刷新…'; });
+            try { if (typeof loadUSStockQuotes === 'function') loadUSStockQuotes(); } catch (e) {}
+            const pool = (window.MINI_CHART && MINI_CHART.pool) ? MINI_CHART.pool : {};
+            Object.keys(pool).forEach(function (k) {
+                const st = pool[k];
+                if (st && st.chart) {
+                    try { reloadMiniChart(st); } catch (e) {}
+                }
+            });
+            setTimeout(function () {
+                btns.forEach(function (b) { b.disabled = false; b.textContent = '一键刷新所有图表'; });
+            }, 1500);
         }
         function addCalcCardHtml(acct, symbol, cfg, markPrice) {
             const entry = Number(cfg && cfg.entryPrice) || 0;
@@ -6020,7 +6078,7 @@
             let quoteCount = 0, cards = '';
             const usMarkMap = {};
             const marginOf = function(cfg) { return Number(cfg && (cfg.initialMargin != null ? cfg.initialMargin : cfg.margin)) || 0; };
-            Object.keys(POSITIONS).sort(getSortComparator(mainSortMode)).forEach(function(symbol) {
+            Object.keys(POSITIONS).sort(withSortDir(getSortComparator(mainSortMode), mainSortMode, mainSortDir)).forEach(function(symbol) {
                 const x = positionNumbers(symbol), c = x.config;
                 if (x.quoteValid) quoteCount++;
                 const cls = !x.valid ? 'card-neutral' : x.pnlUsdt > 0 ? 'card-up' : x.pnlUsdt < 0 ? 'card-down' : 'card-neutral';
@@ -6091,7 +6149,7 @@
                     '<div><span>资金费</span><b class="muted">' + fuText2 + '</b>' + ageHtml(syncTs) + '</div>' +
                     '<div><span>合计成本</span><b class="' + costCls2 + '">' + costText2 + '</b>' + ageHtml(syncTs) + '</div>' +
                     '<div><span>交易费率</span><b class="muted">' + frText + '</b>' + ageHtml(syncTs) + '</div></div></button>' +
-                    addCalcCardHtml('m', symbol, c, x.priceValid ? x.price : (Number(c.markPrice) || 0)) +
+                    midColHtml('m', symbol, c, x.priceValid ? x.price : (Number(c.markPrice) || 0)) +
                     usStockCardHtml(symbol, x.priceValid ? x.price : NaN, 'm', c.name, c.entryPrice, c.liqPrice) +
                     '</div>';
             });
@@ -6667,33 +6725,36 @@
         // 收集图内「美股开盘」标记时间（美东 09:30；夏令→北京 21:30，冬令→22:30）
         // 日线/周线不标，避免刷屏；仅当该交易日确有对应 bar 才标
         function usOpenMarkerTimes(rows, iv) {
+            // 按实际 K 线扫描美东 09:30 开盘 bar（币安图与美股分钟图都是「北京时间当 UTC」进轴）
+            // 日/周/月没有日内开盘，不标；找不到刚好 09:30 的 bar 时，取当天第一根 ≥09:30 且距开盘 1 小时内的 K
             if (!Array.isArray(rows) || !rows.length) return [];
             if (iv === '1d' || iv === '1w' || iv === '1M') return [];
-            const tStart = (rows[0].time - CHART_TZ_SHIFT) * 1000;
-            const tEnd = (rows[rows.length - 1].time - CHART_TZ_SHIFT) * 1000;
-            if (!Number.isFinite(tStart) || !Number.isFinite(tEnd)) return [];
-            const dateMap = {};
-            for (let t = tStart - 86400000; t <= tEnd + 86400000; t += 6 * 3600000) {
-                try { dateMap[usETDate(t)] = 1; } catch (e) {}
-            }
+            const OPEN = 9 * 60 + 30;
             const out = [];
             const seen = {};
-            Object.keys(dateMap).sort().forEach(function (ds) {
-                const y = Number(String(ds).slice(0, 4));
-                const m = Number(String(ds).slice(5, 7));
-                const d = Number(String(ds).slice(8, 10));
-                if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return;
-                const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-                if (wd === 0 || wd === 6) return;
-                const openMs = Date.parse(ds + 'T09:30:00' + usETOffsetStr(ds));
-                if (!Number.isFinite(openMs)) return;
-                // 币安图已 +8h；美股分钟图东财时间按北京-as-UTC 进图，与 CHART_TZ_SHIFT 口径一致
-                const chartSec = Math.floor(openMs / 1000) + CHART_TZ_SHIFT;
-                const bt = matchChartBarTime(rows, chartSec, iv);
-                if (bt == null || seen[bt]) return;
-                seen[bt] = 1;
-                out.push(bt);
-            });
+            let prevDate = '';
+            let prevMin = -1;
+            for (let i = 0; i < rows.length; i++) {
+                const t = rows[i] && rows[i].time;
+                if (!Number.isFinite(t)) continue;
+                const realMs = (t - CHART_TZ_SHIFT) * 1000;
+                if (!Number.isFinite(realMs)) continue;
+                let dow, mins, ds;
+                try {
+                    dow = usETWeekday(realMs);
+                    mins = usETMinuteOfDay(realMs);
+                    ds = usETDate(realMs);
+                } catch (e) { continue; }
+                if (dow === 0 || dow === 6) { prevDate = ds; prevMin = mins; continue; }
+                const crossed = (ds !== prevDate || prevMin < OPEN) && mins >= OPEN;
+                const nearOpen = (mins - OPEN) <= 60;
+                if ((mins === OPEN || (crossed && nearOpen)) && !seen[ds]) {
+                    seen[ds] = 1;
+                    out.push(t);
+                }
+                prevDate = ds;
+                prevMin = mins;
+            }
             return out;
         }
 
