@@ -344,19 +344,13 @@
         .accounts-dual-heads .position-home-head { margin: 0; gap: 8px; flex-wrap: wrap; }
         .accounts-dual-rows { display: flex; flex-direction: column; gap: 10px; }
         .pc-dual-left, .pc-dual-right { min-width: 0; }
-        .pc-dual-row .pc-pair {
-            grid-template-columns: minmax(0,1fr) minmax(148px,170px) minmax(0,1fr);
-            gap: 6px;
-        }
-        .pc-dual-row .pc-pair.pc-pair-empty { grid-template-columns: 1fr; }
+        .pc-dual-row .pc-pair { display:flex; flex-direction:column; gap:6px; }
+        .pc-dual-row .pc-pair.pc-pair-empty { display:block; }
         .pc-dual-row .pc-pair-empty > .pc-empty { min-height: 180px; height: 100%; }
         @media (max-width: 1200px) {
             .accounts-dual-summaries,
             .accounts-dual-heads,
             .pc-dual-row { grid-template-columns: 1fr; }
-            .pc-dual-row .pc-pair {
-                grid-template-columns: minmax(0,1fr) minmax(200px,240px) minmax(0,1fr);
-            }
         }
         /* 置顶后原位置的双线分隔：两道横线，拉开主账户区与子账户区 */
         .sep-double { margin: 26px 0 20px; }
@@ -593,16 +587,14 @@
         /* 持仓卡片：全部挤在一行内平分宽度，不滚动；卡内三组信息上下排布 */
         .position-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; overflow:visible; }
         @media (max-width:620px) { .position-grid { grid-template-columns:1fr; } }
-        /* 同一品种一行三列：币安持仓卡 | 加仓试算（最窄） | 美股正股卡 */
-        .pc-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(200px,240px) minmax(0,1fr); gap:8px; min-width:0; align-items:stretch; grid-column:1 / -1; }
-        .pc-pair > .position-card { min-width:0; height:100%; }
-        .pc-pair > .pc-midcol { min-width:0; height:auto; align-self:start; display:flex; flex-direction:column; gap:6px; box-sizing:border-box; }
-        .pc-refresh-all { width:100%; box-sizing:border-box; margin:0; padding:5px 8px; font-size:11px; font-weight:600; line-height:1.2; color:#e2e8f0; background:#1e293b; border:1px solid #334155; border-radius:6px; cursor:pointer; }
+        /* 同一品种：币安持仓卡在上，扁平加仓试算在下（美股开盘/最高/最低/昨收已并入币安卡） */
+        .pc-pair { display:flex; flex-direction:column; gap:6px; min-width:0; grid-column:1 / -1; }
+        .pc-pair > .position-card { min-width:0; height:auto; }
+        .pc-pair > .pc-midcol { min-width:0; width:100%; height:auto; align-self:stretch; display:flex; flex-direction:column; gap:4px; box-sizing:border-box; }
+        .pc-refresh-all { width:100%; box-sizing:border-box; margin:0; padding:3px 8px; font-size:11px; font-weight:600; line-height:1.2; color:#e2e8f0; background:#1e293b; border:1px solid #334155; border-radius:6px; cursor:pointer; }
         .pc-refresh-all:hover { border-color:#60a5fa; color:#93c5fd; }
         .pc-refresh-all:active { background:#0f172a; }
-        /* 该品种缺少左/右卡时，剩余卡仍铺满 */
-        .pc-pair > .position-card:only-child { grid-column:1 / -1; }
-        @media (max-width:900px) { .pc-pair { grid-template-columns:1fr; } }
+        .pc-us-ohlc { margin-top:4px; padding-top:4px; border-top:1px dashed var(--border); }
         .position-grid > .position-card { min-width:0; }
         .position-grid > .detail-empty { grid-column:1 / -1; }
         .position-card { background:var(--card-bg); border:1px solid var(--border); border-top:3px solid var(--border-strong); border-radius:8px; padding:11px 10px; cursor:pointer; transition:transform .15s, box-shadow .15s, border-color .15s; min-height:0; }
@@ -704,7 +696,7 @@
         .pc-leftcol { display:flex; flex-direction:column; gap:6px; min-width:0; height:100%; }
         .pc-leftcol > .position-card { flex:1 1 auto; min-height:0; }
         .pc-pair > .pc-leftcol { min-width:0; }
-        .pc-addcalc { background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:6px; padding:4px 6px 3px; cursor:default; box-shadow:inset 0 1px 0 rgba(255,255,255,.04); }
+        .pc-addcalc { background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:6px; padding:3px 8px 3px; cursor:default; box-shadow:inset 0 1px 0 rgba(255,255,255,.04); }
         .pc-addcalc-title { font-size:10px; font-weight:700; color:#93c5fd; margin:0 0 3px; letter-spacing:.02em; display:flex; align-items:flex-start; justify-content:space-between; gap:4px; flex-wrap:wrap; line-height:1.2; }
         .pc-addcalc-title i { font-style:normal; font-size:8.5px; color:#94a3b8; font-weight:500; }
         .pc-addcalc-title-meta { display:flex; flex-direction:column; align-items:flex-end; gap:0; min-width:0; line-height:1.2; }
@@ -712,24 +704,26 @@
         .pc-addcalc-reallev { font-style:normal; font-size:8.5px; color:#fbbf24; font-weight:600; font-family:Consolas,monospace; white-space:nowrap; letter-spacing:0; }
         .pc-addcalc-reallev i.lev3 { font-style:normal; color:#7dd3fc; font-size:8.5px; font-weight:700; }
         .pc-addcalc-reallev.muted { color:#64748b; font-weight:500; }
-        .pc-addcalc-row { display:flex; flex-wrap:nowrap; align-items:center; gap:4px; margin-bottom:3px; }
-        .pc-addcalc-row.pc-addcalc-row3 { margin-top:1px; padding-top:3px; border-top:1px dashed #334155; }
+        .pc-addcalc-inputs { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:4px 8px; margin:0 0 3px; }
+        .pc-addcalc-row { display:flex; flex-wrap:nowrap; align-items:center; gap:4px; margin-bottom:0; }
+        .pc-addcalc-row.pc-addcalc-row3 { margin-top:0; padding-top:0; border-top:none; }
         .pc-addcalc-row.pc-addcalc-row3 > label { color:#fbbf24; }
         .pc-addcalc-row.pc-addcalc-row3 > input { border-color:#7c5a12; }
-        .pc-addcalc-row label { font-size:8.5px; color:#94a3b8; white-space:nowrap; flex:0 0 5.6em; width:5.6em; }
-        .pc-addcalc-metrics > div.span2 { grid-column: 1 / -1; }
+        .pc-addcalc-row label { font-size:8.5px; color:#94a3b8; white-space:nowrap; flex:0 0 auto; }
+        @media (max-width:720px) { .pc-addcalc-inputs { grid-template-columns:1fr; } }
         .pc-addcalc-row input { flex:1 1 auto; min-width:0; height:18px; border-radius:3px; border:1px solid #475569; background:#1e293b; color:#f8fafc; font-size:10.5px; font-family:Consolas,monospace; padding:0 5px; outline:none; box-sizing:border-box; }
         .pc-addcalc-row input:focus { border-color:#60a5fa; box-shadow:0 0 0 1px rgba(96,165,250,.25); }
         .pc-addcalc-row input::-webkit-outer-spin-button, .pc-addcalc-row input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
         .pc-addcalc-row input[type=number], .pc-addcalc-row input[type=text] { -moz-appearance:textfield; appearance:textfield; }
-        .pc-addcalc-metrics { display:grid; grid-template-columns:1fr; gap:2px; }
+        .pc-addcalc-metrics { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr) minmax(0,1.2fr); gap:3px 6px; }
+        @media (max-width:720px) { .pc-addcalc-metrics { grid-template-columns:1fr 1fr; } }
         .pc-addcalc-metrics > div { background:#1e293b; border:1px solid #334155; border-radius:4px; padding:2px 5px; min-width:0; }
         .pc-addcalc-metrics span { display:block; font-size:8px; color:#94a3b8; line-height:1.15; margin-bottom:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .pc-addcalc-metrics b { display:block; font-size:9.5px; font-family:Consolas,monospace; color:#f8fafc; font-weight:700; line-height:1.25; white-space:normal; word-break:break-word; }
         .pc-addcalc-metrics b.pos { color:#4ade80; } .pc-addcalc-metrics b.neg { color:#f87171; } .pc-addcalc-metrics b.muted { color:#94a3b8; }
         .pc-addcalc-metrics .pc-addcalc-brk { display:block; margin-top:0; font-style:normal; font-size:8px; color:#94a3b8; font-family:Consolas,monospace; line-height:1.2; white-space:normal; word-break:break-word; }
         .pc-addcalc-row .pc-addcalc-cnyhint { flex:0 0 auto; font-size:8.5px; color:#94a3b8; font-family:Consolas,monospace; min-width:3em; text-align:right; }
-        .pc-addcalc-note { margin-top:3px; font-size:7.5px; color:#64748b; line-height:1.3; }
+        .pc-addcalc-note { margin-top:2px; font-size:7.5px; color:#64748b; line-height:1.3; }
         .pc-price { color:var(--text-2); font-size:11px; }
         .pc-status { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .position-detail { display:none; }
@@ -5062,9 +5056,10 @@
                     '<div><span>手续费</span><b class="muted">' + feeText + '</b>' + ageHtml(syncTs) + '</div>' +
                     '<div><span>资金费</span><b class="muted">' + fuText2 + '</b>' + ageHtml(syncTs) + '</div>' +
                     '<div><span>合计成本</span><b class="' + costCls2 + '">' + costText2 + '</b>' + ageHtml(syncTs) + '</div>' +
-                    '<div><span>交易费率</span><b class="muted">' + frText + '</b>' + ageHtml(syncTs) + '</div></div></button>' +
+                    '<div><span>交易费率</span><b class="muted">' + frText + '</b>' + ageHtml(syncTs) + '</div></div>' +
+                    usStockOhlcHtml(symbol) +
+                    '</button>' +
                     midColHtml('m', symbol, c, x.priceValid ? x.price : (Number(c.markPrice) || 0)) +
-                    usStockCardHtml(symbol, x.priceValid ? x.price : NaN, 'm', c.name, c.entryPrice, c.liqPrice) +
                     '</div>';
         }
 
@@ -5093,7 +5088,7 @@
                 const amtAbs=Math.abs(Number(x.amt!=null?x.amt:(c.quantity!=null?c.quantity:(x.qty||0)))||0);
                 const notionalLive=(x.markValid&&amtAbs>0)?(amtAbs*x.mark):NaN;
                 const notionalUsdt=Number.isFinite(notionalLive)?notionalLive:Math.abs(Number(p.notional)||0);
-                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b>${ageHtml(subSync)}</div><div><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div><span>资金费</span><b class="muted">${fuT}</b>${ageHtml(subSync)}</div><div><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div><div><span>交易费率</span><b class="muted">${frT}</b>${ageHtml(subSync)}</div></div></button>${midColHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}${usStockCardHtml(symbol, mark, 's', c.name, c.entryPrice, c.liqPrice)}</div>`;
+                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b>${ageHtml(subSync)}</div><div><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div><span>资金费</span><b class="muted">${fuT}</b>${ageHtml(subSync)}</div><div><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div><div><span>交易费率</span><b class="muted">${frT}</b>${ageHtml(subSync)}</div></div>${usStockOhlcHtml(symbol)}</button>${midColHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}</div>`;
         }
 
         function renderSubaccount() {
@@ -5462,7 +5457,7 @@
         }
         function midColHtml(acct, symbol, cfg, markPrice) {
             return '<div class="pc-midcol">' + addCalcCardHtml(acct, symbol, cfg, markPrice)
-                + '<button type="button" class="pc-refresh-all" title="重新拉取所有币安卡和美股卡的 K 线"'
+                + '<button type="button" class="pc-refresh-all" title="重新拉取所有可见图表的 K 线"'
                 + ' onclick="event.stopPropagation();refreshAllMiniCharts();">一键刷新所有图表</button></div>';
         }
         function refreshAllMiniCharts() {
@@ -5523,6 +5518,7 @@
                 + '<span class="pc-addcalc-side">' + (side === 'short' ? '空' : '多') + ' · ' + (lev || '--') + 'x · ' + (mode === 'cross' ? '全仓' : '逐仓') + '</span>'
                 + '<span class="pc-addcalc-reallev' + (realLev.cls ? ' ' + realLev.cls : '') + '" data-role="realLev">' + realLev.html + '</span>'
                 + '</span></div>'
+                + '<div class="pc-addcalc-inputs">'
                 + '<div class="pc-addcalc-row"><label>加仓名义(U)</label>'
                 + '<input type="text" inputmode="decimal" autocomplete="off" placeholder="例如 100" data-field="notional"'
                 + ' value="' + escHtml(notionalVal) + '"'
@@ -5538,12 +5534,13 @@
                 + ' value="' + escHtml(margin3Val) + '"'
                 + ' oninput="onAddCalcInput(this)" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" />'
                 + '<span class="pc-addcalc-cnyhint" data-role="margin3Cny">' + (margin3Num > 0 ? escHtml(formatAddCalcUsdt(margin3Num, 2)) : '') + '</span></div>'
+                + '</div>'
                 + '<div class="pc-addcalc-metrics">'
                 + '<div><span>综合新均价</span><b data-role="newEntry">' + newEntryText + '</b></div>'
                 + '<div><span>维持爆仓再补</span><b data-role="extra" class="' + (has ? extra.cls : 'muted') + '">' + (has ? extra.text : '--') + '</b></div>'
-                + '<div class="span2"><span>一共需要的保证金（含第三次追加）</span><b data-role="totalNeed" class="' + (has ? '' : 'muted') + '">' + totalText + '</b>'
+                + '<div><span>一共需要的保证金（含第三次追加）</span><b data-role="totalNeed" class="' + (has ? '' : 'muted') + '">' + totalText + '</b>'
                 + '<i class="pc-addcalc-brk" data-role="totalBrk">' + escHtml(brkText) + '</i></div>'
-                + '<div class="span2"><span>第三次追加后爆仓价</span><b data-role="liqAfter3" class="' + liq3.cls + '">' + escHtml(liq3.text) + '</b></div>'
+                + '<div><span>第三次追加后爆仓价</span><b data-role="liqAfter3" class="' + liq3.cls + '">' + escHtml(liq3.text) + '</b></div>'
                 + '</div>'
                 + '<div class="pc-addcalc-note" data-role="note">' + escHtml(note) + '</div>'
                 + '</div>';
@@ -7988,6 +7985,23 @@
                 st.last = c;
                 updateMiniLast(st);
             });
+        }
+
+        function usStockOhlcHtml(symbol) {
+            const m = US_STOCK_MAP[symbol];
+            if (!m) return '';
+            const q = US_STOCK_QUOTES[m.ticker];
+            if (!q || !(Number(q.price) > 0)) return '';
+            const live = usLiveQuote(q);
+            const n2 = function (v) { return Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v).toFixed(2) : '--'; };
+            const usAge = ageHtml(usQuoteAgeTs(q, live.src));
+            return '<div class="pc-us-ohlc" title="美股正股行情（腾讯+百度），非币安合成价格">' +
+                '<div class="pc-info"><div><span>开盘</span><b>' + n2(q.open) + '</b>' + usAge + '</div>' +
+                '<div><span>最高</span><b>' + n2(q.high) + '</b>' + usAge + '</div>' +
+                '<div><span>最低</span><b>' + n2(q.low) + '</b>' + usAge + '</div>' +
+                '<div><span>昨收</span><b>' + n2(q.prev) + '</b>' + usAge + '</div></div>' +
+                '<div class="pc-realized"><div><span>数据源</span><b class="muted">腾讯+百度</b></div>' +
+                '<div><span>刷新</span><b class="muted">' + usAge + '</b></div></div></div>';
         }
 
         function usStockHtml(symbol, markPrice) {
