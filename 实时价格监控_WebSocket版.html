@@ -169,7 +169,7 @@
         }
 
         .terminal {
-            max-width: 1400px;
+            max-width: 1880px;
             margin: 0 auto;
             background-color: var(--panel-bg);
             border: 1px solid var(--border);
@@ -330,6 +330,34 @@
         }
         /* 置顶的两个账户汇总卡：贴住顶部，与下方卡片拉开一点距离 */
         #positionHome > .summary { margin-top: 0; margin-bottom: 12px; }
+        .accounts-dual-summaries > .summary { margin-top: 0; margin-bottom: 0; }
+        .accounts-dual-summaries,
+        .accounts-dual-heads,
+        .pc-dual-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 12px;
+            align-items: start;
+        }
+        .accounts-dual-summaries { margin-bottom: 12px; }
+        .accounts-dual-heads { margin-bottom: 10px; }
+        .accounts-dual-heads .position-home-head { margin: 0; gap: 8px; flex-wrap: wrap; }
+        .accounts-dual-rows { display: flex; flex-direction: column; gap: 10px; }
+        .pc-dual-left, .pc-dual-right { min-width: 0; }
+        .pc-dual-row .pc-pair {
+            grid-template-columns: minmax(0,1fr) minmax(148px,170px) minmax(0,1fr);
+            gap: 6px;
+        }
+        .pc-dual-row .pc-pair.pc-pair-empty { grid-template-columns: 1fr; }
+        .pc-dual-row .pc-pair-empty > .pc-empty { min-height: 180px; height: 100%; }
+        @media (max-width: 1200px) {
+            .accounts-dual-summaries,
+            .accounts-dual-heads,
+            .pc-dual-row { grid-template-columns: 1fr; }
+            .pc-dual-row .pc-pair {
+                grid-template-columns: minmax(0,1fr) minmax(200px,240px) minmax(0,1fr);
+            }
+        }
         /* 置顶后原位置的双线分隔：两道横线，拉开主账户区与子账户区 */
         .sep-double { margin: 26px 0 20px; }
         .sep-double::before { content: ""; display: block; border-top: 2px solid var(--border); }
@@ -1048,7 +1076,8 @@
 
         <div id="content" style="display: none;">
             <div id="positionHome" class="position-home">
-                <!-- 两个账户汇总卡：置顶显示 -->
+                <!-- 两个账户汇总卡：左右双栏，主账户左、子账户右 -->
+                <div class="accounts-dual-summaries">
                 <div class="summary">
                     <div class="summary-line">💰 钱包余额: <span id="totalWalletUsdt">--</span> USDT（<span id="totalWalletCny">¥--</span>）<span id="ageWallet" class="data-age-slot"></span> · 初始保证金合计: <span id="totalInitMarginUsdt">--</span> USDT（<span id="totalMarginCny">¥--</span>）<span id="ageInitMargin" class="data-age-slot"></span> · <span id="cnyRateNote" style="font-size:11px;color:var(--muted);">币安 C2C 卖出汇率获取中…</span></div>
                     <div class="summary-line primary-pnl pnl-highlight" id="mainPnlSummary">💵 未实现盈亏(API)：<span class="summary-value"><span id="totalPnlUsdt">--</span> USDT（<span id="totalPnlCny">¥--</span>）</span><span id="agePnl" class="data-age-slot"></span></div>
@@ -1058,7 +1087,9 @@
                 </div>
 
                 <div id="subaccountSummary" class="summary" style="border-left:3px solid var(--blue);"></div>
+                </div>
 
+                <div class="accounts-dual-heads">
                 <div class="position-home-head">
                     <div class="position-home-title">📊 主账户持仓总览</div>
                     <div class="position-home-note">
@@ -1081,7 +1112,30 @@
                         </span>
                     </div>
                 </div>
-                <div id="positionGrid" class="position-grid"></div>
+                <div class="position-home-head" id="subaccountGrid">
+                    <div class="position-home-title" style="color:var(--blue);">子账户持仓总览</div>
+                    <div class="position-home-note">
+                        <span>与主账户相同结构 · 只读 API · 点击卡片查看详情</span>
+                        <span style="margin-left: 12px;">
+                            <label style="color: var(--muted); font-size: 11px;">排序：</label>
+                            <select id="subSortSelector" onchange="changeSubSort(this.value)" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer;">
+                                <option value="margin">按保证金（默认）</option>
+                                <option value="qty">按持仓</option>
+                                <option value="liqBuffer">按易爆仓</option>
+                                <option value="pnl">按总盈亏</option>
+                                <option value="pnlPercent">按收益率</option>
+                                <option value="dayChange">按今日涨跌</option>
+                                <option value="name">按名称</option>
+                            </select>
+                            <select id="subSortDirSelector" onchange="changeSubSortDir(this.value)" title="升序或降序" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer; margin-left: 4px;">
+                                <option value="desc" selected>降序</option>
+                                <option value="asc">升序</option>
+                            </select>
+                        </span>
+                    </div>
+                </div>
+                </div>
+                <div id="pairedPositions" class="accounts-dual-rows"></div>
                 <div id="homeSummary" class="summary"></div>
             </div>
 
@@ -1139,40 +1193,8 @@
             </table>
             </div>
 
-            <!-- 原汇总卡位置：用双线把主账户区与子账户区明显隔开 -->
-            <div class="sep-double" aria-hidden="true"></div>
-
-            <div class="account-divider">
-                <span class="ad-badge">🧾 子账户持仓（只读 API）</span>
-                <span class="ad-note">与主账户同构 · 点击卡片查看详情</span>
-            </div>
-
-            <div id="subaccountPanel" class="position-home" style="border-left:3px solid var(--blue);">
-                <div class="position-home-head">
-                    <div class="position-home-title" style="color:var(--blue);">子账户持仓总览</div>
-                    <div class="position-home-note">
-                        <span>与主账户相同结构 · 只读 API · 点击卡片查看详情</span>
-                        <span style="margin-left: 20px;">
-                            <label style="color: var(--muted); font-size: 11px;">排序：</label>
-                            <select id="subSortSelector" onchange="changeSubSort(this.value)" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer;">
-                                <option value="margin">按保证金（默认）</option>
-                                <option value="qty">按持仓</option>
-                                <option value="liqBuffer">按易爆仓</option>
-                                <option value="pnl">按总盈亏</option>
-                                <option value="pnlPercent">按收益率</option>
-                                <option value="dayChange">按今日涨跌</option>
-                                <option value="name">按名称</option>
-                            </select>
-                            <select id="subSortDirSelector" onchange="changeSubSortDir(this.value)" title="升序或降序" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer; margin-left: 4px;">
-                                <option value="desc" selected>降序</option>
-                                <option value="asc">升序</option>
-                            </select>
-                        </span>
-                    </div>
-                </div>
-                <div id="subaccountHome" class="position-home">
-                    <div id="subaccountGrid" class="position-grid"><div class="detail-empty">等待子账户同步…请运行"启动子账户同步.bat"</div></div>
-                </div>
+            <div id="subaccountPanel" class="position-home">
+                <div id="subaccountHome" class="position-home" style="display:none;"></div>
                 <div id="subaccountDetail" class="position-detail" style="display:none;">
                     <div class="detail-toolbar">
                         <button class="btn" onclick="showSubaccountHome()">← 返回子账户总览</button>
@@ -4598,28 +4620,35 @@
                 return (wantAsc === naturalAsc) ? c : -c;
             };
         }
+        function syncPairedSortSelectors() {
+            subSortMode = mainSortMode;
+            subSortDir = mainSortDir;
+            const ms = document.getElementById('mainSortSelector');
+            const md = document.getElementById('mainSortDirSelector');
+            const ss = document.getElementById('subSortSelector');
+            const sd = document.getElementById('subSortDirSelector');
+            if (ms) ms.value = mainSortMode;
+            if (md) md.value = mainSortDir;
+            if (ss) ss.value = mainSortMode;
+            if (sd) sd.value = mainSortDir;
+        }
         function changeMainSort(mode) {
             mainSortMode = mode;
             mainSortDir = naturalSortDir(mode);
-            const el = document.getElementById('mainSortDirSelector');
-            if (el) el.value = mainSortDir;
+            syncPairedSortSelectors();
             renderPositionHome();
         }
         function changeMainSortDir(dir) {
             mainSortDir = (dir === 'asc') ? 'asc' : 'desc';
+            syncPairedSortSelectors();
             renderPositionHome();
         }
 
         function changeSubSort(mode) {
-            subSortMode = mode;
-            subSortDir = naturalSortDir(mode);
-            const el = document.getElementById('subSortDirSelector');
-            if (el) el.value = subSortDir;
-            renderSubaccount();
+            changeMainSort(mode);
         }
         function changeSubSortDir(dir) {
-            subSortDir = (dir === 'asc') ? 'asc' : 'desc';
-            renderSubaccount();
+            changeMainSortDir(dir);
         }
 
 
@@ -4833,53 +4862,218 @@
             const st=STATIC_POSITIONS[symbol]||{}; const amt=Number(p.positionAmt)||0; const init=Number(p.initialMargin)||0;
             return {name:st.name||symbol,full:st.full||symbol+' 永续合约（子账户）',underlying:st.underlying||'币安合约标的',cat:st.cat||'crypto',entryPrice:Number(p.entryPrice)||0,quantity:Math.abs(Number(p.quantity)||0),positionAmt:amt,side:p.side||(amt<0?'short':'long'),leverage:Number(p.leverage)||1,liqPrice:Number(p.liqPrice)||0,margin:init,initialMargin:init,mode:p.mode||'isolated',markPrice:Number(p.markPrice)||0,unRealizedProfit:p.unRealizedProfit==null?null:Number(p.unRealizedProfit),stopLoss:0,takeProfit:0};
         }
-        function renderSubaccount() {
-            const grid=document.getElementById('subaccountGrid'), summary=document.getElementById('subaccountSummary');
-            if(!grid||!summary) {
-                console.error('❌ 找不到子账户DOM元素');
+
+        function emptyAccountPairHtml(side, symbol, note) {
+            const cfg = (typeof POSITIONS !== 'undefined' && POSITIONS && POSITIONS[symbol])
+                || (typeof STATIC_POSITIONS !== 'undefined' && STATIC_POSITIONS[symbol])
+                || {};
+            const name = cfg.name || symbol;
+            const defaultNote = side === 's' ? '主账户已持有 · 子账户暂无此产品' : '子账户已持有 · 主账户暂无此产品';
+            const id = side === 's' ? ('subaccount-' + symbol) : ('position-' + symbol);
+            return '<div class="pc-pair pc-pair-empty" id="' + escHtml(id) + '">' +
+                '<div class="position-card pc-empty" title="' + escHtml(symbol) + ' · 未持仓">' +
+                '<div class="pc-head"><span class="pc-name">' + escHtml(name) + '</span><span class="pc-empty-tag">未持仓</span></div>' +
+                '<div class="pc-empty-note">' + escHtml(note || defaultNote) + '</div></div></div>';
+        }
+        function pairedSortKey(symbol, mode) {
+            if (POSITIONS && POSITIONS[symbol]) {
+                const a = positionNumbers(symbol);
+                switch (mode) {
+                    case 'liqBuffer':
+                        return liquidationBufferPct(a.price, liquidationPrice(a.config), (a.config && a.config.side) || a.positionAmt);
+                    case 'pnl':
+                        return a.valid ? a.pnlUsdt : -Infinity;
+                    case 'pnlPercent': {
+                        const marginA = Number(a.config && (a.config.initialMargin != null ? a.config.initialMargin : a.config.margin)) || 1;
+                        return a.valid ? (a.pnlUsdt / marginA) * 100 : -Infinity;
+                    }
+                    case 'dayChange': {
+                        const d = dayChangePct(symbol, a.price);
+                        return Number.isFinite(d) ? d : -Infinity;
+                    }
+                    case 'qty': {
+                        const amt = Math.abs(Number(a && a.positionAmt != null ? a.positionAmt : (a && a.config && a.config.quantity)) || 0);
+                        const mk = a && a.priceValid ? Number(a.price) : 0;
+                        if (amt && mk > 0) return amt * mk;
+                        return Math.abs(Number(a && a.config && a.config.notional) || 0);
+                    }
+                    case 'name':
+                        return ((a.config && a.config.name) || symbol).toLowerCase();
+                    default:
+                        return Number(a.config && (a.config.initialMargin != null ? a.config.initialMargin : a.config.margin)) || 0;
+                }
+            }
+            const ps = (window.__BINANCE_SUBACCOUNT__ && window.__BINANCE_SUBACCOUNT__.positions) || {};
+            const p = ps[symbol];
+            const x = subPositionNumbers(symbol, p) || {};
+            switch (mode) {
+                case 'liqBuffer':
+                    return liquidationBufferPct(x.mark, Number(p && p.liqPrice), (p && p.side) || x.amt);
+                case 'pnl':
+                    return x.pnlValid ? x.pnl : -Infinity;
+                case 'pnlPercent':
+                    return Number.isFinite(x.roe) ? x.roe : -Infinity;
+                case 'dayChange': {
+                    const d = dayChangePct(symbol, x.mark);
+                    return Number.isFinite(d) ? d : -Infinity;
+                }
+                case 'qty': {
+                    const amt = Math.abs(Number(x.amt != null ? x.amt : x.qty) || 0);
+                    const mk = x.markValid ? Number(x.mark) : 0;
+                    if (amt && mk > 0) return amt * mk;
+                    return Math.abs(Number(p && p.notional) || 0);
+                }
+                case 'name': {
+                    const cfg = p ? subPositionConfig(symbol, p) : ((typeof STATIC_POSITIONS !== 'undefined' && STATIC_POSITIONS[symbol]) || {});
+                    return (cfg.name || symbol).toLowerCase();
+                }
+                default:
+                    return Number(p && (p.initialMargin != null ? p.initialMargin : p.margin)) || 0;
+            }
+        }
+        function getPairedSortComparator(mode) {
+            return function(symbolA, symbolB) {
+                const ka = pairedSortKey(symbolA, mode);
+                const kb = pairedSortKey(symbolB, mode);
+                if (mode === 'name') return String(ka).localeCompare(String(kb));
+                if (mode === 'liqBuffer') return (Number(ka) || 0) - (Number(kb) || 0);
+                return (Number(kb) || 0) - (Number(ka) || 0);
+            };
+        }
+        let _pairedRenderTimer = 0;
+        function schedulePairedAccountRows() {
+            if (_pairedRenderTimer) return;
+            _pairedRenderTimer = requestAnimationFrame(function() {
+                _pairedRenderTimer = 0;
+                try { renderPairedAccountRows(); } catch (e) { console.error(e); }
+            });
+        }
+        function renderPairedAccountRows() {
+            const rowsEl = document.getElementById('pairedPositions');
+            if (!rowsEl) return;
+            const __addFocus = snapshotAddCalcFocus(rowsEl);
+            const __sc = captureScrollState(rowsEl);
+            const live = window.__BINANCE_SUBACCOUNT__;
+            const ps = (live && live.positions) || {};
+            const mainKeys = Object.keys(POSITIONS || {});
+            const subReady = !!(live && live.positions);
+            const subKeys = subReady ? Object.keys(ps) : [];
+            const seen = {};
+            const all = [];
+            mainKeys.concat(subKeys).forEach(function(s) {
+                if (s && !seen[s]) { seen[s] = true; all.push(s); }
+            });
+            all.sort(withSortDir(getPairedSortComparator(mainSortMode), mainSortMode, mainSortDir));
+            if (!all.length) {
+                rowsEl.innerHTML = '<div class="detail-empty">暂无持仓</div>';
+                restoreAddCalcFocus(rowsEl, __addFocus);
+                restoreScrollState(__sc);
                 return;
             }
+            let html = '';
+            all.forEach(function(symbol) {
+                const left = POSITIONS[symbol] ? mainPairCardHtml(symbol) : emptyAccountPairHtml('m', symbol);
+                let right;
+                if (!live) {
+                    right = emptyAccountPairHtml('s', symbol, '等待子账户同步…');
+                } else if (live.error && !(live.account && live.positions)) {
+                    right = emptyAccountPairHtml('s', symbol, '子账户同步失败');
+                } else if (ps[symbol]) {
+                    right = subPairCardHtml(symbol);
+                } else {
+                    right = emptyAccountPairHtml('s', symbol);
+                }
+                html += '<div class="pc-dual-row" data-symbol="' + escHtml(symbol) + '">' +
+                    '<div class="pc-dual-left">' + left + '</div>' +
+                    '<div class="pc-dual-right">' + right + '</div></div>';
+            });
+            rowsEl.innerHTML = html;
+            restoreAddCalcFocus(rowsEl, __addFocus);
+            restoreScrollState(__sc);
+            if (typeof mountMiniCharts === 'function') mountMiniCharts();
+        }
 
-            let live=window.__BINANCE_SUBACCOUNT__;
-            console.log('📊 子账户数据:', live);
+        function mainPairCardHtml(symbol) {
+            if (!POSITIONS || !POSITIONS[symbol]) return emptyAccountPairHtml('m', symbol);
 
-            if (live && live.account && live.positions && !live.error) {
-                lastGoodSubaccount = live;
-            } else if (live && live.error && live.account && live.positions) {
-                // 脚本失败但保留了快照：继续用这份数据渲染，并在 summary 提示
-                lastGoodSubaccount = live;
-            } else if (live && live.error && lastGoodSubaccount) {
-                // 纯错误 payload：回退上一份成功快照
-                live = Object.assign({}, lastGoodSubaccount, { error: live.error, failAt: live.updatedAt || '' });
-            }
+                const x = positionNumbers(symbol), c = x.config;
+                const cls = !x.valid ? 'card-neutral' : x.pnlUsdt > 0 ? 'card-up' : x.pnlUsdt < 0 ? 'card-down' : 'card-neutral';
+                const pnlCls = !x.valid ? 'neutral' : x.pnlUsdt > 0 ? 'positive' : x.pnlUsdt < 0 ? 'negative' : 'neutral';
+                const sign = x.valid && x.pnlUsdt > 0 ? '+' : '';
+                const liq = liquidationPrice(c);
+                const marginUsdt = Number(c.initialMargin != null ? c.initialMargin : c.margin) || 0;
+                // 收益率 ROE = 未实现盈亏 ÷ 初始保证金 × 100（与币安 APP 一致）
+                const roe = (x.valid && marginUsdt > 0) ? (x.pnlUsdt / marginUsdt) * 100 : NaN;
+                const roeCls = !Number.isFinite(roe) ? 'neutral' : roe > 0 ? 'positive' : roe < 0 ? 'negative' : 'neutral';
+                const roeText = Number.isFinite(roe) ? (roe > 0 ? '+' : '') + roe.toFixed(2) + '%' : '--';
+                // 已实现盈亏 / 手续费 / 交易费率（币安 income 流水，近 90 天累计）
+                const rpVal = c.realizedPnl == null ? NaN : Number(c.realizedPnl);
+                const feeVal = c.feePaid == null ? NaN : Number(c.feePaid);
+                const frVal = c.feeRate == null ? NaN : Number(c.feeRate);
+                const fuVal = c.fundingFee == null ? NaN : Number(c.fundingFee);
+                // 卡片醒目：持仓金额=名义价值（|positionAmt|×mark，回退 API notional）；保证金=initialMargin
+                const sideKey = (c.side === 'short' || (Number.isFinite(Number(x.positionAmt)) && Number(x.positionAmt) < 0)) ? 'short' : 'long';
+                const sideText = sideKey === 'short' ? '空' : '多';
+                const sideCls = sideKey === 'short' ? 'side-short' : 'side-long';
+                const amtAbs = Math.abs(Number(x.positionAmt != null ? x.positionAmt : c.quantity) || 0);
+                const notionalLive = (x.priceValid && amtAbs > 0) ? (amtAbs * x.price) : NaN;
+                const notionalUsdt = Number.isFinite(notionalLive) ? notionalLive : Math.abs(Number(c.notional) || 0);
+                const fmtSigned2 = function(v) {
+                    if (!Number.isFinite(v)) return '--';
+                    if (v === 0) return '0.0000';
+                    return (v > 0 ? '+' : '-') + Math.abs(v).toFixed(4);
+                };
+                const fuText2 = fmtSigned2(fuVal);
+                const costVal2 = (Number.isFinite(feeVal) && Number.isFinite(fuVal)) ? (feeVal + fuVal) : NaN;
+                const costText2 = fmtSigned2(costVal2);
+                const costCls2 = !Number.isFinite(costVal2) || costVal2 === 0 ? 'muted' : costVal2 < 0 ? 'negative' : 'positive';
+                const fmtSigned = function(v) {
+                    if (!Number.isFinite(v)) return '--';
+                    if (v === 0) return '0.0000';
+                    return (v > 0 ? '+' : '-') + Math.abs(v).toFixed(4);
+                };
+                const rpText = fmtSigned(rpVal);
+                const feeText = fmtSigned(feeVal);
+                const frText = (Number.isFinite(frVal) && frVal > 0) ? (frVal * 100).toFixed(4) + '%' : '--';
+                const rpCls = !Number.isFinite(rpVal) || rpVal === 0 ? 'muted' : rpVal > 0 ? 'positive' : 'negative';
+                const markTs = markAgeTs(symbol);
+                const syncTs = mainSyncTs();
+                return '<div class="pc-pair" id="position-' + symbol + '">' +
+                    '<button class="position-card ' + cls + '" onclick="showPositionDetail(&quot;' + escHtml(symbol) + '&quot;)" aria-label="查看' + escHtml(c.name) + '详情">' +
+                    '<div class="pc-head"><span class="pc-name">' + escHtml(c.name) + '</span>' +
+                    '<span class="pc-metrics">' +
+                    '<span class="pc-roe"><i>收益率</i><b class="' + roeCls + '">' + roeText + '</b>' + ageHtml(markTs) + '</span>' +
+                    dayChangeHtml(symbol, x.price) +
+                    '<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</b>' + ageHtml(markTs) + '</span>' +
+                    '</span>' +
+                    '</div>' +
+                    '<div class="pc-hold-mg" title="持仓=名义价值（|positionAmt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin">' +
+                    '<div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b>' + ageHtml(markTs) + '</div>' +
+                    '<div class="pc-mg"><i>保证金</i><b>' + usdtCny(marginUsdt) + '</b>' + ageHtml(syncTs) + '</div></div>' +
+                    usStockHtml(symbol, x.priceValid ? x.price : NaN) +
+                    miniChartHtml('m', symbol, c.entryPrice, liq) +
+                    '<div class="pc-info"><div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b>' + ageHtml(markTs) + '</div>' +
+                    '<div><span>保证金</span><b>' + usdtCny(marginUsdt) + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>爆仓价(API)</span><b>' + (Number.isFinite(liq) ? liq.toFixed(2) : '--') + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>建仓价</span><b>' + Number(c.entryPrice).toFixed(2) + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>标记价</span><b>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</b>' + ageHtml(markTs) + '</div></div>' +
+                    '<div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口">' +
+                    '<div><span>已实现盈亏</span><b class="' + rpCls + '">' + rpText + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>手续费</span><b class="muted">' + feeText + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>资金费</span><b class="muted">' + fuText2 + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>合计成本</span><b class="' + costCls2 + '">' + costText2 + '</b>' + ageHtml(syncTs) + '</div>' +
+                    '<div><span>交易费率</span><b class="muted">' + frText + '</b>' + ageHtml(syncTs) + '</div></div></button>' +
+                    midColHtml('m', symbol, c, x.priceValid ? x.price : (Number(c.markPrice) || 0)) +
+                    usStockCardHtml(symbol, x.priceValid ? x.price : NaN, 'm', c.name, c.entryPrice, c.liqPrice) +
+                    '</div>';
+        }
 
-            if(!live){
-                grid.innerHTML='<div class="detail-empty">等待子账户同步…请运行"启动子账户同步.bat"</div>';
-                console.warn('⚠️ 子账户数据未加载');
-                return;
-            }
-            if(live.error && !(live.account && live.positions)){
-                grid.innerHTML='<div class="detail-empty">子账户同步失败：'+escHtml(friendlyApiError(live.error))+'</div>';
-                summary.innerHTML='<div class="summary-line lab-err">子账户数据暂不可用 · 同步 '+ageHtml(live.updatedAt)+'</div>';
-                console.error('❌ 子账户同步失败:', live.error);
-                return;
-            }
-
-            console.log('✅ 开始渲染子账户，持仓数量:', Object.keys(live.positions||{}).length);
-
-            const a=live.account||{}, ps=live.positions||{}, keys=Object.keys(ps).sort(withSortDir(getSubSortComparator(subSortMode, ps), subSortMode, subSortDir)), fmt=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'--';
-            // 标记价 / 未实现 / ROE：走共享 subMarkPrice + subPositionNumbers（有最新行情时即时验算）
-            // 主账户有持仓、子账户没有的同类产品：只列占位，不显示任何持仓数据
-            const missing=Object.keys(POSITIONS).filter(function(s){return !(s in ps);});
-            const emptyCardsHtml=missing.map(function(symbol){
-                const cfg=POSITIONS[symbol]||STATIC_POSITIONS[symbol]||{};
-                const name=cfg.name||symbol;
-                return `<div class="position-card pc-empty" title="${escHtml(symbol)} · 子账户未持仓"><div class="pc-head"><span class="pc-name">${escHtml(name)}</span><span class="pc-empty-tag">未持仓</span></div><div class="pc-empty-note">主账户已持有 · 子账户暂无此产品</div></div>`;
-            }).join('');
-            const __addFocusSub=snapshotAddCalcFocus(grid);
-            const __scSub=captureScrollState(grid);
-            const subSync=live.updatedAt;
-            grid.innerHTML=(keys.length?keys.map(function(symbol){const p=ps[symbol],c=subPositionConfig(symbol,p);
+        function subPairCardHtml(symbol) {
+            const live=window.__BINANCE_SUBACCOUNT__,ps=(live&&live.positions)||{},p=ps[symbol];
+            const subSync=live&&live.updatedAt;
+            const fmt=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'--';
+            if(!p) return emptyAccountPairHtml('s', symbol);
+            const c=subPositionConfig(symbol,p);
                 const x=subPositionNumbers(symbol,p)||{};
                 const markTs=markAgeTs(symbol);
                 const mUsdt=x.initM||0;
@@ -4899,11 +5093,45 @@
                 const amtAbs=Math.abs(Number(x.amt!=null?x.amt:(c.quantity!=null?c.quantity:(x.qty||0)))||0);
                 const notionalLive=(x.markValid&&amtAbs>0)?(amtAbs*x.mark):NaN;
                 const notionalUsdt=Number.isFinite(notionalLive)?notionalLive:Math.abs(Number(p.notional)||0);
-                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b>${ageHtml(subSync)}</div><div><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div><span>资金费</span><b class="muted">${fuT}</b>${ageHtml(subSync)}</div><div><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div><div><span>交易费率</span><b class="muted">${frT}</b>${ageHtml(subSync)}</div></div></button>${midColHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}${usStockCardHtml(symbol, mark, 's', c.name, c.entryPrice, c.liqPrice)}</div>`;}).join(''):'')+emptyCardsHtml+(keys.length?'':'<div class="detail-empty">子账户当前没有持仓</div>');
-            restoreAddCalcFocus(grid, __addFocusSub);
-            restoreScrollState(__scSub);
-            // 图表同帧挂回（不重建、不重新取数），避免 5 秒重绘时图区闪一下占位文字
-            if (typeof mountMiniCharts === 'function') mountMiniCharts();
+                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div></div><div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口"><div><span>已实现盈亏</span><b class="${rpC}">${rpT}</b>${ageHtml(subSync)}</div><div><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div><span>资金费</span><b class="muted">${fuT}</b>${ageHtml(subSync)}</div><div><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div><div><span>交易费率</span><b class="muted">${frT}</b>${ageHtml(subSync)}</div></div></button>${midColHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}${usStockCardHtml(symbol, mark, 's', c.name, c.entryPrice, c.liqPrice)}</div>`;
+        }
+
+        function renderSubaccount() {
+            const summary=document.getElementById('subaccountSummary');
+            if(!summary) {
+                console.error('❌ 找不到子账户DOM元素');
+                return;
+            }
+
+            let live=window.__BINANCE_SUBACCOUNT__;
+            console.log('📊 子账户数据:', live);
+
+            if (live && live.account && live.positions && !live.error) {
+                lastGoodSubaccount = live;
+            } else if (live && live.error && live.account && live.positions) {
+                // 脚本失败但保留了快照：继续用这份数据渲染，并在 summary 提示
+                lastGoodSubaccount = live;
+            } else if (live && live.error && lastGoodSubaccount) {
+                // 纯错误 payload：回退上一份成功快照
+                live = Object.assign({}, lastGoodSubaccount, { error: live.error, failAt: live.updatedAt || '' });
+            }
+
+            if(!live){
+                console.warn('⚠️ 子账户数据未加载');
+                schedulePairedAccountRows();
+                return;
+            }
+            if(live.error && !(live.account && live.positions)){
+                summary.innerHTML='<div class="summary-line lab-err">子账户数据暂不可用 · 同步 '+ageHtml(live.updatedAt)+'</div>';
+                console.error('❌ 子账户同步失败:', live.error);
+                schedulePairedAccountRows();
+                return;
+            }
+
+            console.log('✅ 开始渲染子账户，持仓数量:', Object.keys(live.positions||{}).length);
+
+            const a=live.account||{}, ps=live.positions||{}, keys=Object.keys(ps);
+            schedulePairedAccountRows();
             const wallet=Number(a.totalWalletBalance),initM=Number(a.totalPositionInitialMargin),upnl=a.totalUnrealizedProfit==null?NaN:Number(a.totalUnrealizedProfit),eq=Number(a.totalMarginBalance),avail=Number(a.availableBalance),hasUpnl=Number.isFinite(upnl),cls=!hasUpnl?'neutral':upnl>0?'positive':upnl<0?'negative':'neutral';
             const subErrNote = live.error ? (' · <span class="lab-err">最近同步失败（已保留上一份成功数据）：' + escHtml(friendlyApiError(live.error)) + '</span>') : '';
             const subTs=live.updatedAt;
@@ -4917,10 +5145,12 @@
         }
         function showSubaccountHome(){
             activeSubaccountSymbol=null;
-            const home = document.getElementById('subaccountHome');
+            const home = document.getElementById('positionHome');
             const detail = document.getElementById('subaccountDetail');
+            const mainDetail = document.getElementById('positionDetail');
             if(home) home.style.display='block';
             if(detail) detail.style.display='none';
+            if(mainDetail) mainDetail.style.display='none';
             renderSubaccount();
         }
         function showSubaccountDetail(symbol){
@@ -4936,7 +5166,10 @@
             const roeText=Number.isFinite(roe)?((roe>0?'+':'')+roe.toFixed(2)+'%'):'--';
             const roeCls=!Number.isFinite(roe)?'neutral':roe>0?'positive':roe<0?'negative':'neutral';
             activeSubaccountSymbol=symbol;
-            document.getElementById('subaccountHome').style.display='none';
+            const home = document.getElementById('positionHome');
+            const mainDetail = document.getElementById('positionDetail');
+            if (home) home.style.display='none';
+            if (mainDetail) mainDetail.style.display='none';
             document.getElementById('subaccountDetail').style.display='block';
             document.getElementById('subDetailTitle').textContent=c.name+' · 子账户持仓详情';
             document.getElementById('subDetailMetrics').innerHTML=`<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(Number.isFinite(pnl)?pnl:NaN,2,true)}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>当前标记价</span><strong>${markPrice>0?markPrice.toFixed(2):'--'}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>收益率 ROE</span><strong class="${roeCls}">${roeText}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>方向 / 杠杆</span><strong>${c.side==='short'?'空头':'多头'} · ${c.leverage}x</strong></div>`;
@@ -6106,98 +6339,17 @@
         }
 
         function renderPositionHome() {
-            const grid = document.getElementById('positionGrid');
             const summary = document.getElementById('homeSummary');
-            if (!grid || !summary) return;
+            if (!summary) return;
             const accountPnl = liveSyncMeta.account && liveSyncMeta.account.totalUnrealizedProfit != null
                 ? Number(liveSyncMeta.account.totalUnrealizedProfit) : NaN;
             const hasAccountPnl = Number.isFinite(accountPnl);
-            let quoteCount = 0, cards = '';
-            const usMarkMap = {};
-            const marginOf = function(cfg) { return Number(cfg && (cfg.initialMargin != null ? cfg.initialMargin : cfg.margin)) || 0; };
-            Object.keys(POSITIONS).sort(withSortDir(getSortComparator(mainSortMode), mainSortMode, mainSortDir)).forEach(function(symbol) {
-                const x = positionNumbers(symbol), c = x.config;
+            let quoteCount = 0;
+            Object.keys(POSITIONS).forEach(function(symbol) {
+                const x = positionNumbers(symbol);
                 if (x.quoteValid) quoteCount++;
-                const cls = !x.valid ? 'card-neutral' : x.pnlUsdt > 0 ? 'card-up' : x.pnlUsdt < 0 ? 'card-down' : 'card-neutral';
-                const pnlCls = !x.valid ? 'neutral' : x.pnlUsdt > 0 ? 'positive' : x.pnlUsdt < 0 ? 'negative' : 'neutral';
-                const sign = x.valid && x.pnlUsdt > 0 ? '+' : '';
-                const liq = liquidationPrice(c);
-                usMarkMap[symbol] = x.priceValid ? x.price : NaN;
-                const marginUsdt = Number(c.initialMargin != null ? c.initialMargin : c.margin) || 0;
-                // 收益率 ROE = 未实现盈亏 ÷ 初始保证金 × 100（与币安 APP 一致）
-                const roe = (x.valid && marginUsdt > 0) ? (x.pnlUsdt / marginUsdt) * 100 : NaN;
-                const roeCls = !Number.isFinite(roe) ? 'neutral' : roe > 0 ? 'positive' : roe < 0 ? 'negative' : 'neutral';
-                const roeText = Number.isFinite(roe) ? (roe > 0 ? '+' : '') + roe.toFixed(2) + '%' : '--';
-                // 已实现盈亏 / 手续费 / 交易费率（币安 income 流水，近 90 天累计）
-                const rpVal = c.realizedPnl == null ? NaN : Number(c.realizedPnl);
-                const feeVal = c.feePaid == null ? NaN : Number(c.feePaid);
-                const frVal = c.feeRate == null ? NaN : Number(c.feeRate);
-                const fuVal = c.fundingFee == null ? NaN : Number(c.fundingFee);
-                // 卡片醒目：持仓金额=名义价值（|positionAmt|×mark，回退 API notional）；保证金=initialMargin
-                const sideKey = (c.side === 'short' || (Number.isFinite(Number(x.positionAmt)) && Number(x.positionAmt) < 0)) ? 'short' : 'long';
-                const sideText = sideKey === 'short' ? '空' : '多';
-                const sideCls = sideKey === 'short' ? 'side-short' : 'side-long';
-                const amtAbs = Math.abs(Number(x.positionAmt != null ? x.positionAmt : c.quantity) || 0);
-                const notionalLive = (x.priceValid && amtAbs > 0) ? (amtAbs * x.price) : NaN;
-                const notionalUsdt = Number.isFinite(notionalLive) ? notionalLive : Math.abs(Number(c.notional) || 0);
-                const fmtSigned2 = function(v) {
-                    if (!Number.isFinite(v)) return '--';
-                    if (v === 0) return '0.0000';
-                    return (v > 0 ? '+' : '-') + Math.abs(v).toFixed(4);
-                };
-                const fuText2 = fmtSigned2(fuVal);
-                const costVal2 = (Number.isFinite(feeVal) && Number.isFinite(fuVal)) ? (feeVal + fuVal) : NaN;
-                const costText2 = fmtSigned2(costVal2);
-                const costCls2 = !Number.isFinite(costVal2) || costVal2 === 0 ? 'muted' : costVal2 < 0 ? 'negative' : 'positive';
-                const fmtSigned = function(v) {
-                    if (!Number.isFinite(v)) return '--';
-                    if (v === 0) return '0.0000';
-                    return (v > 0 ? '+' : '-') + Math.abs(v).toFixed(4);
-                };
-                const rpText = fmtSigned(rpVal);
-                const feeText = fmtSigned(feeVal);
-                const frText = (Number.isFinite(frVal) && frVal > 0) ? (frVal * 100).toFixed(4) + '%' : '--';
-                const rpCls = !Number.isFinite(rpVal) || rpVal === 0 ? 'muted' : rpVal > 0 ? 'positive' : 'negative';
-                const markTs = markAgeTs(symbol);
-                const syncTs = mainSyncTs();
-                // 同一品种一行三列：币安卡 | 加仓试算（最窄） | 美股正股卡
-                cards += '<div class="pc-pair" id="position-' + symbol + '">' +
-                    '<button class="position-card ' + cls + '" onclick="showPositionDetail(&quot;' + escHtml(symbol) + '&quot;)" aria-label="查看' + escHtml(c.name) + '详情">' +
-                    '<div class="pc-head"><span class="pc-name">' + escHtml(c.name) + '</span>' +
-                    '<span class="pc-metrics">' +
-                    '<span class="pc-roe"><i>收益率</i><b class="' + roeCls + '">' + roeText + '</b>' + ageHtml(markTs) + '</span>' +
-                    dayChangeHtml(symbol, x.price) +
-                    '<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</b>' + ageHtml(markTs) + '</span>' +
-                    '</span>' +
-                    '</div>' +
-                    '<div class="pc-hold-mg" title="持仓=名义价值（|positionAmt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin">' +
-                    '<div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b>' + ageHtml(markTs) + '</div>' +
-                    '<div class="pc-mg"><i>保证金</i><b>' + usdtCny(marginUsdt) + '</b>' + ageHtml(syncTs) + '</div></div>' +
-                    usStockHtml(symbol, x.priceValid ? x.price : NaN) +
-                    miniChartHtml('m', symbol, c.entryPrice, liq) +
-                    '<div class="pc-info"><div><span>持仓</span><b class="' + sideCls + '">' + sideText + ' · ' + usdtCny(notionalUsdt) + '</b>' + ageHtml(markTs) + '</div>' +
-                    '<div><span>保证金</span><b>' + usdtCny(marginUsdt) + '</b>' + ageHtml(syncTs) + '</div>' +
-                    '<div><span>爆仓价(API)</span><b>' + (Number.isFinite(liq) ? liq.toFixed(2) : '--') + '</b>' + ageHtml(syncTs) + '</div>' +
-                    '<div><span>建仓价</span><b>' + Number(c.entryPrice).toFixed(2) + '</b>' + ageHtml(syncTs) + '</div>' +
-                    '<div><span>标记价</span><b>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</b>' + ageHtml(markTs) + '</div></div>' +
-                    '<div class="pc-realized" title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income / commissionRate 接口">' +
-                    '<div><span>已实现盈亏</span><b class="' + rpCls + '">' + rpText + '</b>' + ageHtml(syncTs) + '</div>' +
-                    '<div><span>手续费</span><b class="muted">' + feeText + '</b>' + ageHtml(syncTs) + '</div>' +
-                    '<div><span>资金费</span><b class="muted">' + fuText2 + '</b>' + ageHtml(syncTs) + '</div>' +
-                    '<div><span>合计成本</span><b class="' + costCls2 + '">' + costText2 + '</b>' + ageHtml(syncTs) + '</div>' +
-                    '<div><span>交易费率</span><b class="muted">' + frText + '</b>' + ageHtml(syncTs) + '</div></div></button>' +
-                    midColHtml('m', symbol, c, x.priceValid ? x.price : (Number(c.markPrice) || 0)) +
-                    usStockCardHtml(symbol, x.priceValid ? x.price : NaN, 'm', c.name, c.entryPrice, c.liqPrice) +
-                    '</div>';
             });
-            const __addFocus = snapshotAddCalcFocus(grid);
-            // 记住滚动位置：整块 innerHTML 重建时浏览器可能把页面滚回顶部（8 秒一次的自动重绘会表现为"定时跳回最上面"）
-            const __sc = captureScrollState(grid);
-            grid.innerHTML = cards || '<div class="detail-empty">暂无持仓</div>';
-            restoreAddCalcFocus(grid, __addFocus);
-            restoreScrollState(__sc);
-            // 图表同帧挂回（不重建、不重新取数），避免 5 秒重绘时图区闪一下占位文字
-            if (typeof mountMiniCharts === 'function') mountMiniCharts();
+            schedulePairedAccountRows();
             const totalCls = !hasAccountPnl ? 'neutral' : accountPnl > 0 ? 'positive' : accountPnl < 0 ? 'negative' : 'neutral';
             summary.innerHTML = '<div class="summary-line"><strong>持仓合计</strong> · 已收到 ' + quoteCount + '/' + Object.keys(POSITIONS).length + ' 个标的行情</div>';
             // 累计费用归位到主账户汇总格（与子账户同构，不再挂在持仓合计框下面）
@@ -6212,8 +6364,11 @@
 
         function showPositionHome() {
             activeDetailSymbol = null;
+            activeSubaccountSymbol = null;
             document.getElementById('positionHome').style.display = 'block';
             document.getElementById('positionDetail').style.display = 'none';
+            const sd = document.getElementById('subaccountDetail');
+            if (sd) sd.style.display = 'none';
             renderPositionHome();
         }
 
