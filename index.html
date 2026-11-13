@@ -379,6 +379,11 @@
         .summary-line.primary-pnl.positive { border-left-color:var(--up); background:var(--up-bg); }
         .summary-line.pnl-highlight { background:#fff3a6; border:2px solid #e0ad00; border-left:6px solid #d99b00; color:#4a3600; box-shadow:0 2px 8px rgba(217,155,0,.25); }
         .summary-line.pnl-highlight .summary-value { color:#241b00; }
+        /* 现在一键平仓：黄底强调且数字保持红涨绿跌（覆盖 primary-pnl 正负背景与 pnl-highlight 的深色字） */
+        .summary-line.primary-pnl.pnl-highlight.close-now-total { background:#fff3a6; border:2px solid #e0ad00; border-left:6px solid #d99b00; color:#4a3600; box-shadow:0 2px 8px rgba(217,155,0,.25); }
+        .summary-line.pnl-highlight .summary-value.positive { color:var(--up); }
+        .summary-line.pnl-highlight .summary-value.negative { color:var(--down); }
+        .summary-line.pnl-highlight .summary-value.neutral { color:var(--muted); }
         .data-age { font-size:10px; font-weight:600; color:#2563eb; margin-left:5px; white-space:nowrap; font-family:inherit; }
         .summary-line .data-age, .data-age-slot .data-age { font-size:11px; font-weight:700; }
         .summary-line.primary-pnl .data-age, .summary-line.pnl-highlight .data-age { font-size:12px; font-weight:700; color:#1d4ed8; }
@@ -657,7 +662,7 @@
         .pc-us-sess.closed { background:var(--card-bg-2); color:var(--muted); border:1px solid var(--border-strong); }
         .pc-us-preline { display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin:2px 0 0; font-size:10px; color:var(--muted); }
         .pc-us-preline b { font-family:Consolas,monospace; font-size:11px; }
-        .pc-metrics { display:flex; flex:1 1 auto; flex-wrap:nowrap; align-items:baseline; justify-content:flex-start; gap:6px 8px; margin:0; padding:0; min-width:0; overflow:visible; }
+        .pc-metrics { display:flex; flex:1 1 auto; flex-wrap:nowrap; align-items:center; justify-content:flex-start; gap:6px 6px; margin:0; padding:0; min-width:0; overflow:visible; }
         .pc-metrics > span { display:inline-flex; align-items:baseline; gap:3px; min-width:0; font-size:8.5px; color:var(--muted); white-space:nowrap; }
         .pc-metrics i { font-style:normal; }
         .pc-roe { display:inline-flex; align-items:baseline; gap:3px; }
@@ -689,6 +694,11 @@
         .pc-chart-tip { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:10px; }
         .pc-pnl { font-size:11.5px; line-height:1.2; font-weight:bold; font-family:Consolas,monospace; }
         .pc-pnl.positive { color:var(--up); } .pc-pnl.negative { color:var(--down); } .pc-pnl.neutral { color:var(--muted); }
+        /* 卡片标题「现在平仓」：紧凑琥珀高亮，数字更大更重，仍保持红涨绿跌 */
+        .pc-metrics > span.pc-close-now, .pc-close-now { background:#fff3a6; border:1px solid #e0ad00; border-left:3px solid #d99b00; border-radius:4px; padding:1px 5px; gap:3px; color:#4a3600; flex:0 0 auto; box-shadow:0 1px 3px rgba(217,155,0,.22); }
+        .pc-close-now i { color:#4a3600; font-size:9px; font-weight:700; line-height:1.2; }
+        .pc-close-now .pc-pnl { font-size:13.5px; font-weight:800; line-height:1.2; }
+        .pc-close-now .pc-pnl.positive { color:var(--up); } .pc-close-now .pc-pnl.negative { color:var(--down); } .pc-close-now .pc-pnl.neutral { color:var(--muted); }
         .pc-foot { display:flex; justify-content:space-between; align-items:center; margin-top:10px; color:var(--muted); font-size:10px; gap:8px; }
         .pc-info { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:2px 10px; margin-top:6px; padding-top:5px; border-top:1px dashed var(--border); }
         .pc-info > div { display:inline-flex; align-items:baseline; justify-content:space-between; gap:4px; min-width:0; }
@@ -750,6 +760,12 @@
         .detail-metric { background:var(--panel-bg); border:1px solid var(--border); border-radius:5px; padding:8px; }
         .detail-metric span { display:block; color:var(--muted); font-size:10px; }
         .detail-metric strong { display:block; color:var(--text); font-size:15px; margin-top:2px; }
+        .detail-metric.detail-close-now { background:#fff3a6; border:2px solid #e0ad00; border-left:6px solid #d99b00; box-shadow:0 2px 8px rgba(217,155,0,.25); color:#4a3600; }
+        .detail-metric.detail-close-now span { color:#4a3600; font-weight:700; }
+        .detail-metric.detail-close-now strong { font-size:18px; font-weight:800; font-family:Consolas,monospace; }
+        .detail-metric.detail-close-now strong.positive { color:var(--up); }
+        .detail-metric.detail-close-now strong.negative { color:var(--down); }
+        .detail-metric.detail-close-now strong.neutral { color:var(--muted); }
         .detail-list { max-height:340px; overflow:auto; }
         .detail-list-item { border-left:3px solid var(--blue); padding:8px 9px; margin:7px 0; background:var(--panel-bg); border-radius:3px; }
         .detail-list-item.past { border-left-color:var(--border-strong); opacity:.72; }
@@ -5036,11 +5052,11 @@
         }
         function closeNowPnlRowHtml(unreal, pos, notional) {
             const m = closeNowFromPos(unreal, pos, notional);
-            return '<span class="pc-pnl-row" title="' + escHtml(m.tip) + '"><i>现在平仓</i><b class="pc-pnl ' + m.cls + '">' + usdtCny(m.v, 2, true) + '</b></span>';
+            return '<span class="pc-pnl-row pc-close-now" title="' + escHtml(m.tip) + '"><i>现在平仓</i><b class="pc-pnl ' + m.cls + '">' + usdtCny(m.v, 2, true) + '</b></span>';
         }
         function closeNowDetailHtml(unreal, pos, notional, ageTs) {
             const m = closeNowFromPos(unreal, pos, notional);
-            return '<div class="detail-metric" title="' + escHtml(m.tip) + '"><span>现在平仓</span><strong class="' + m.cls + '">' + usdtCny(m.v, 2, true) + '</strong>' + ageHtml(ageTs) + '</div>';
+            return '<div class="detail-metric detail-close-now" title="' + escHtml(m.tip) + '"><span>现在平仓</span><strong class="' + m.cls + '">' + usdtCny(m.v, 2, true) + '</strong>' + ageHtml(ageTs) + '</div>';
         }
         function positionNotionalUsdt(markValid, mark, amt, fallbackNotional) {
             const amtAbs = Math.abs(Number(amt) || 0);
@@ -5101,8 +5117,8 @@
             const ageTs = ts != null ? ts : (total && Number.isFinite(total.age) ? total.age : mainSyncTs());
             const age = known ? ageHtml(ageTs) : '';
             const countNote = (known && total.count) ? ' <span style="color:var(--muted);font-size:11px;">（' + total.count + ' 个标的合计）</span>' : '';
-            return '<div class="summary-line primary-pnl ' + cls + '" title="' + escHtml(tip) + '">' +
-                (label || '⚡ 现在一键平仓') + '：<span class="summary-value">' + (known ? usdtCny(v, 2, true) : '--') + '</span>' + age + countNote + '</div>';
+            return '<div class="summary-line primary-pnl pnl-highlight close-now-total ' + cls + '" title="' + escHtml(tip) + '">' +
+                (label || '⚡ 现在一键平仓') + '：<span class="summary-value ' + cls + '">' + (known ? usdtCny(v, 2, true) : '--') + '</span>' + age + countNote + '</div>';
         }
         function updateMainCloseNowLine() {
             const el = document.getElementById('mainCloseNowLine');
