@@ -663,9 +663,10 @@
         .pc-pnl-row { display:inline-flex; align-items:baseline; gap:3px; min-width:0; font-size:8.5px; color:var(--muted); }
         .pc-pnl-label { color:var(--muted); font-size:8.5px; }
         /* 卡片内迷你走势图（独立追加）：小时级收盘折线 + 建仓价虚线 */
-        .pc-chart { margin:6px 0 4px; height:200px; position:relative; }
+        .pc-chart { margin:6px 0 4px; height:220px; position:relative; }
         .pc-chart .mc-wrap { display:flex; flex-direction:column; height:100%; width:100%; }
-        .pc-chart .mc-body { flex:1 1 auto; min-height:0; position:relative; }
+        .pc-chart .mc-body { flex:1 1 auto; min-height:0; position:relative; overflow:hidden; }
+        #mcLayer .mc-body, #mcLayer .mc-body .tv-lightweight-charts { overflow:hidden !important; }
         /* 美股开盘：贯穿图高的淡蓝虚竖线（LWC v4 setMarkers 无竖线 shape，用 overlay） */
         .us-open-vlines { position:absolute; inset:0; pointer-events:none; z-index:4; overflow:hidden; }
         .us-open-vline { position:absolute; top:0; bottom:0; width:0; border-left:2px dashed rgba(11, 99, 197, 0.42); transform:translateX(-1px); box-sizing:border-box; }
@@ -3531,15 +3532,15 @@
             const st = { key: key, acct: (String(key).charAt(0) === 'u' ? 'u' : String(key).charAt(0) === 's' ? 's' : 'm'), src: src, sec: sec, sina: sina, symbol: symbol, interval: ((src === 'us') ? DEFAULT_US_CHART_INTERVAL : DEFAULT_BINANCE_CHART_INTERVAL), entry: Number(box.getAttribute('data-entry')) || 0, liq: Number(box.getAttribute('data-liq')) || 0, cur: Number(box.getAttribute('data-cur')) || 0, box: box, wrap: wrap, head: head, body: body, chart: null, series: null, lines: [], rows: null, last: NaN, lastFetchOk: 0, w: 0, h: 0 };
             const chart = LightweightCharts.createChart(body, {
                 width: Math.max(120, (box.clientWidth || 320) - 2),
-                height: Math.max(60, (box.clientHeight || 200) - 24),
-                layout: { background: { type: 'solid', color: pal.bg }, textColor: pal.text, fontSize: 10, fontFamily: 'inherit' },
+                height: Math.max(80, (box.clientHeight || 220) - 24),
+                layout: { background: { type: 'solid', color: pal.bg }, textColor: pal.text, fontSize: 10, fontFamily: 'Tahoma, "Microsoft YaHei", sans-serif' },
                 grid: { vertLines: { color: pal.grid, style: 1 }, horzLines: { color: pal.grid, style: 1 } },
                 rightPriceScale: { borderColor: pal.grid, scaleMargins: { top: 0.15, bottom: 0.12 } },
-                timeScale: { borderColor: pal.grid, timeVisible: true, secondsVisible: false, rightOffset: 2 },
+                timeScale: lwcTimeScaleOpts(pal.grid, 2),
                 crosshair: { mode: 0 },
                 handleScroll: true,
                 handleScale: true,
-                localization: { priceFormatter: function (p) { return lwcFmt(p); } }
+                localization: lwcLocalizationOpts()
             });
             st.chart = chart;
             st.series = createChartSeries(chart, st.interval, st);
@@ -3586,7 +3587,8 @@
             st.wrap.style.top = Math.round(r.top) + 'px';
             st.wrap.style.width = w + 'px';
             st.wrap.style.height = h + 'px';
-            const cw = w - 2, ch = h - (st.head ? st.head.offsetHeight : 22) - 2;
+            const cw = Math.max(40, (st.body && st.body.clientWidth) || (w - 2));
+            const ch = Math.max(80, (st.body && st.body.clientHeight) || (h - (st.head ? st.head.offsetHeight : 22) - 2));
             if (cw > 40 && ch > 40 && (cw !== st.w || ch !== st.h)) {
                 st.w = cw; st.h = ch;
                 try { st.chart.applyOptions({ width: cw, height: ch }); } catch (e) {}
@@ -7110,6 +7112,50 @@
         }
         function lwcReady() { return !!(window.LightweightCharts && window.LightweightCharts.createChart); }
         function lwcFmt(v) { return Number.isFinite(v) ? v.toFixed(2) : '--'; }
+        // 图内 time 已按北京时间平移（币安 +8h；美股按东财/新浪的北京日期），按 UTC 解读即可得到轴上该显示的日期。
+        function lwcTimeDate(time) {
+            if (time && typeof time === 'object' && time.year) {
+                return new Date(Date.UTC(time.year, time.month - 1, time.day));
+            }
+            const d = new Date(Number(time) * 1000);
+            return Number.isFinite(d.getTime()) ? d : null;
+        }
+        function lwcPad2(n) { return String(n).padStart(2, '0'); }
+        function lwcTickMarkFormatter(time, tickMarkType) {
+            const d = lwcTimeDate(time);
+            if (!d) return '';
+            const y = d.getUTCFullYear();
+            const m = lwcPad2(d.getUTCMonth() + 1);
+            const day = lwcPad2(d.getUTCDate());
+            const hh = lwcPad2(d.getUTCHours());
+            const mm = lwcPad2(d.getUTCMinutes());
+            const T = (window.LightweightCharts && LightweightCharts.TickMarkType) || {};
+            if (tickMarkType === T.Year || tickMarkType === 0) return String(y);
+            if (tickMarkType === T.Month || tickMarkType === 1) return y + '-' + m;
+            if (tickMarkType === T.DayOfMonth || tickMarkType === 2) return m + '-' + day;
+            return m + '-' + day + ' ' + hh + ':' + mm;
+        }
+        function lwcTimeFormatter(time) {
+            const d = lwcTimeDate(time);
+            if (!d) return '';
+            return lwcPad2(d.getUTCMonth() + 1) + '-' + lwcPad2(d.getUTCDate()) + ' ' +
+                lwcPad2(d.getUTCHours()) + ':' + lwcPad2(d.getUTCMinutes());
+        }
+        function lwcTimeScaleOpts(borderColor, rightOffset) {
+            return {
+                borderColor: borderColor,
+                visible: true,
+                timeVisible: true,
+                secondsVisible: false,
+                ticksVisible: false,
+                rightOffset: rightOffset,
+                tickMarkFormatter: lwcTickMarkFormatter
+            };
+        }
+        function lwcLocalizationOpts() {
+            return { priceFormatter: function (p) { return lwcFmt(p); }, timeFormatter: lwcTimeFormatter };
+        }
+
 
         // 美股日 K 原始缓存（新浪一次返回全部历史；带 10 分钟有效期，避免盘中一直用旧数据）
         const US_DAILY_CACHE = {};
@@ -7590,14 +7636,14 @@
             const chart = LightweightCharts.createChart(body, {
                 width: body.clientWidth || box.clientWidth || 600,
                 height: body.clientHeight || 260,
-                layout: { background: { type: 'solid', color: pal.bg }, textColor: pal.text, fontSize: 11, fontFamily: 'inherit' },
+                layout: { background: { type: 'solid', color: pal.bg }, textColor: pal.text, fontSize: 11, fontFamily: 'Tahoma, "Microsoft YaHei", sans-serif' },
                 grid: { vertLines: { color: pal.grid, style: 1 }, horzLines: { color: pal.grid, style: 1 } },
                 rightPriceScale: { borderColor: pal.grid, scaleMargins: { top: 0.12, bottom: 0.12 } },
-                timeScale: { borderColor: pal.grid, timeVisible: true, secondsVisible: false, rightOffset: 3 },
+                timeScale: lwcTimeScaleOpts(pal.grid, 3),
                 crosshair: { mode: 0 },
                 handleScroll: true,
                 handleScale: true,
-                localization: { priceFormatter: function (p) { return lwcFmt(p); } }
+                localization: lwcLocalizationOpts()
             });
             fresh.chart = chart;
             fresh.series = createChartSeries(chart, fresh.interval, fresh);
