@@ -625,18 +625,19 @@
         .pc-symbol { color:var(--muted); font-size:10px; }
         .pc-mg { display:flex; align-items:baseline; justify-content:flex-end; gap:4px; min-width:0; flex:0 0 auto; text-align:right; line-height:1.2; }
         .pc-mg i { display:block; flex:0 0 auto; font-style:normal; font-size:8.5px; color:var(--muted); }
-        .pc-mg b { min-width:0; font-size:10px; font-family:Consolas,monospace; color:var(--text); font-weight:700; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
+        .pc-mg b { font-size:10px; font-family:Consolas,monospace; color:var(--text); font-weight:700; text-align:right; white-space:nowrap; overflow:visible; }
         /* 醒目：持仓金额（名义价值 notional）+ 保证金（initialMargin / live sync） */
-        .pc-hold-mg { display:flex; align-items:stretch; justify-content:space-between; gap:4px 6px; flex-wrap:wrap; margin:2px 0 4px; padding:5px 8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); }
-        .pc-hold-mg > div { display:flex; align-items:baseline; gap:3px; min-width:0; flex:1 1 18%; }
+        /* 双栏卡上 2×2：持仓|保证金 / 手续费|合计成本，数字完整显示不裁切 */
+        .pc-hold-mg { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:start; gap:4px 8px; margin:2px 0 4px; padding:5px 8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); overflow:visible; }
+        .pc-hold-mg > div { display:flex; flex-wrap:wrap; align-items:baseline; gap:1px 3px; min-width:0; }
         .pc-hold-mg span, .pc-hold-mg i { font-style:normal; font-size:10px; color:var(--muted); white-space:nowrap; }
-        .pc-hold-mg b { font-size:12px; font-family:Consolas,monospace; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .pc-hold-mg b { font-size:12px; font-family:Consolas,monospace; font-weight:700; color:var(--text); white-space:nowrap; overflow:visible; }
+        .pc-hold-mg > div > .data-age { flex:1 0 100%; display:block; margin-left:0; margin-top:1px; }
         .pc-hold-mg b.side-long { color:var(--up); }
         .pc-hold-mg b.side-short { color:var(--down); }
         .pc-hold-mg b.muted { color:var(--muted); }
         .pc-hold-mg b.positive { color:var(--up); }
         .pc-hold-mg b.negative { color:var(--down); }
-        .pc-hold-mg .pc-mg { flex:1 1 18%; }
 
         /* 一行四指标：收益率(ROE) | 今日涨跌 | 未实现 | 现在平仓，不换行，共用一个刷新时间 */
         /* 美股正股行情行：币安永续价格之外的真实美股报价 + 永续相对正股的溢价 */
