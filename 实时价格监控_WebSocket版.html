@@ -650,7 +650,7 @@
         .pc-us-sess.closed { background:var(--card-bg-2); color:var(--muted); border:1px solid var(--border-strong); }
         .pc-us-preline { display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap; margin:2px 0 0; font-size:10px; color:var(--muted); }
         .pc-us-preline b { font-family:Consolas,monospace; font-size:11px; }
-        .pc-metrics { display:flex; flex:1 1 auto; flex-wrap:nowrap; align-items:baseline; justify-content:space-evenly; gap:6px; margin:0; padding:0; min-width:0; overflow:hidden; }
+        .pc-metrics { display:flex; flex:1 1 auto; flex-wrap:wrap; align-items:baseline; justify-content:space-evenly; gap:6px; margin:0; padding:0; min-width:0; overflow:visible; }
         .pc-metrics > span { display:inline-flex; align-items:baseline; gap:3px; min-width:0; font-size:8.5px; color:var(--muted); white-space:nowrap; }
         .pc-metrics i { font-style:normal; }
         .pc-roe { display:inline-flex; align-items:baseline; gap:3px; }
@@ -4991,6 +4991,50 @@
             if (typeof mountMiniCharts === 'function') mountMiniCharts();
         }
 
+
+        // 现在平仓：未实现 + 已实现 + 累计手续费 + 资金费 − 预估平仓手续费（名义价值 × 交易费率，缺省 0.04%）
+        const DEFAULT_CLOSE_FEE_RATE = 0.0004;
+        function closeNowPnl(unreal, realized, feePaid, funding, notional, feeRate) {
+            if (!Number.isFinite(unreal)) return NaN;
+            let total = unreal;
+            if (Number.isFinite(realized)) total += realized;
+            if (Number.isFinite(feePaid)) total += feePaid;
+            if (Number.isFinite(funding)) total += funding;
+            const rate = (Number.isFinite(feeRate) && feeRate > 0) ? feeRate : DEFAULT_CLOSE_FEE_RATE;
+            if (Number.isFinite(notional) && notional > 0) total -= Math.abs(notional) * rate;
+            return total;
+        }
+        function closeNowPnlMeta(unreal, realized, feePaid, funding, notional, feeRate) {
+            const v = closeNowPnl(unreal, realized, feePaid, funding, notional, feeRate);
+            const cls = !Number.isFinite(v) ? 'neutral' : v > 0 ? 'positive' : v < 0 ? 'negative' : 'neutral';
+            const rate = (Number.isFinite(feeRate) && feeRate > 0) ? feeRate : DEFAULT_CLOSE_FEE_RATE;
+            const closeFee = (Number.isFinite(notional) && notional > 0) ? Math.abs(notional) * rate : NaN;
+            const tip = '按当前标记价市价平仓的预估净盈亏：未实现 + 已实现 + 累计手续费 + 资金费 − 预估平仓手续费（名义价值 × ' +
+                (rate * 100).toFixed(4) + '%）' +
+                (Number.isFinite(closeFee) ? '，约 ' + closeFee.toFixed(4) + ' USDT' : '') +
+                '。实际成交价和是否吃单可能略有差别。';
+            return { v: v, cls: cls, tip: tip };
+        }
+        function closeNowFromPos(unreal, pos, notional) {
+            pos = pos || {};
+            return closeNowPnlMeta(
+                unreal,
+                pos.realizedPnl == null ? NaN : Number(pos.realizedPnl),
+                pos.feePaid == null ? NaN : Number(pos.feePaid),
+                pos.fundingFee == null ? NaN : Number(pos.fundingFee),
+                notional,
+                pos.feeRate == null ? NaN : Number(pos.feeRate)
+            );
+        }
+        function closeNowPnlRowHtml(unreal, pos, notional, ageTs) {
+            const m = closeNowFromPos(unreal, pos, notional);
+            return '<span class="pc-pnl-row" title="' + escHtml(m.tip) + '"><i>现在平仓</i><b class="pc-pnl ' + m.cls + '">' + usdtCny(m.v, 2, true) + '</b>' + ageHtml(ageTs) + '</span>';
+        }
+        function closeNowDetailHtml(unreal, pos, notional, ageTs) {
+            const m = closeNowFromPos(unreal, pos, notional);
+            return '<div class="detail-metric" title="' + escHtml(m.tip) + '"><span>现在平仓</span><strong class="' + m.cls + '">' + usdtCny(m.v, 2, true) + '</strong>' + ageHtml(ageTs) + '</div>';
+        }
+
         function mainPairCardHtml(symbol) {
             if (!POSITIONS || !POSITIONS[symbol]) return emptyAccountPairHtml('m', symbol);
 
@@ -5043,6 +5087,7 @@
                     '<span class="pc-roe"><i>收益率</i><b class="' + roeCls + '">' + roeText + '</b>' + ageHtml(markTs) + '</span>' +
                     dayChangeHtml(symbol, x.price) +
                     '<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</b>' + ageHtml(markTs) + '</span>' +
+                    closeNowPnlRowHtml(x.valid ? x.pnlUsdt : NaN, c, notionalUsdt, markTs) +
                     '</span>' +
                     '</div>' +
                     '<div class="pc-hold-mg" title="持仓=名义价值（|positionAmt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin">' +
@@ -5088,7 +5133,7 @@
                 const amtAbs=Math.abs(Number(x.amt!=null?x.amt:(c.quantity!=null?c.quantity:(x.qty||0)))||0);
                 const notionalLive=(x.markValid&&amtAbs>0)?(amtAbs*x.mark):NaN;
                 const notionalUsdt=Number.isFinite(notionalLive)?notionalLive:Math.abs(Number(p.notional)||0);
-                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span></span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div><div title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income 接口"><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div title="手续费 + 资金费"><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div></div>${usStockOhlcHtml(symbol, mark, 's', entry, c.liqPrice)}</button>${midColHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}</div>`;
+                return `<div class="pc-pair" id="subaccount-${escHtml(symbol)}"><button class="position-card ${cls}" onclick="showSubaccountDetail('${escHtml(symbol)}')"><div class="pc-head"><span class="pc-name">${escHtml(c.name)}</span><span class="pc-metrics"><span class="pc-roe"><i>收益率</i><b class="${roeCls}">${roeText}</b>${ageHtml(markTs)}</span>${dayChangeHtml(symbol, mark)}<span class="pc-pnl-row"><i>未实现</i><b class="pc-pnl ${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(hasPnl?pnl:NaN,2,true)}</b>${ageHtml(markTs)}</span>${closeNowPnlRowHtml(hasPnl?pnl:NaN, p, notionalUsdt, markTs)}</span></div><div class="pc-hold-mg" title="持仓=名义价值（|amt|×标记价，与即时验算同口径；无行情回退 API notional）；保证金=live sync initialMargin"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div class="pc-mg"><i>保证金</i><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div></div>${usStockHtml(symbol, mark)}${miniChartHtml('s', symbol, entry, (Number(c.liqPrice)>0?Number(c.liqPrice):0))}<div class="pc-info"><div><span>持仓</span><b class="${sideCls}">${sideText} · ${usdtCny(notionalUsdt)}</b>${ageHtml(markTs)}</div><div><span>保证金</span><b>${usdtCny(mUsdt)}</b>${ageHtml(subSync)}</div><div><span>爆仓价</span><b>${Number(c.liqPrice)>0?fmt(c.liqPrice):'--'}</b>${ageHtml(subSync)}</div><div><span>建仓价</span><b>${entry.toFixed(2)}</b>${ageHtml(subSync)}</div><div><span>标记价</span><b>${fmt(mark)}</b>${ageHtml(markTs)}</div><div title="自首笔成交起累计（全部历史在 90 天内），来源：币安 income 接口"><span>手续费</span><b class="muted">${feeT}</b>${ageHtml(subSync)}</div><div title="手续费 + 资金费"><span>合计成本</span><b class="${costC}">${costT}</b>${ageHtml(subSync)}</div></div>${usStockOhlcHtml(symbol, mark, 's', entry, c.liqPrice)}</button>${midColHtml('s', symbol, c, mark || Number(c.markPrice) || 0)}</div>`;
         }
 
         function renderSubaccount() {
@@ -5167,7 +5212,8 @@
             if (mainDetail) mainDetail.style.display='none';
             document.getElementById('subaccountDetail').style.display='block';
             document.getElementById('subDetailTitle').textContent=c.name+' · 子账户持仓详情';
-            document.getElementById('subDetailMetrics').innerHTML=`<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(Number.isFinite(pnl)?pnl:NaN,2,true)}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>当前标记价</span><strong>${markPrice>0?markPrice.toFixed(2):'--'}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>收益率 ROE</span><strong class="${roeCls}">${roeText}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>方向 / 杠杆</span><strong>${c.side==='short'?'空头':'多头'} · ${c.leverage}x</strong></div>`;
+            const _subNotional=Number.isFinite(positionValue)&&markPrice>0?positionValue:Math.abs(Number(p.notional)||0);
+            document.getElementById('subDetailMetrics').innerHTML=`<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnl>0?'positive':pnl<0?'negative':'neutral'}">${usdtCny(Number.isFinite(pnl)?pnl:NaN,2,true)}</strong>${ageHtml(markAgeTs(symbol))}</div>${closeNowDetailHtml(Number.isFinite(pnl)?pnl:NaN, p, _subNotional, markAgeTs(symbol))}<div class="detail-metric"><span>当前标记价</span><strong>${markPrice>0?markPrice.toFixed(2):'--'}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>收益率 ROE</span><strong class="${roeCls}">${roeText}</strong>${ageHtml(markAgeTs(symbol))}</div><div class="detail-metric"><span>方向 / 杠杆</span><strong>${c.side==='short'?'空头':'多头'} · ${c.leverage}x</strong></div>`;
             document.getElementById('subDetailRisk').innerHTML=`产品：${escHtml(c.full)}<br>开仓价：${Number(c.entryPrice).toFixed(2)} · <strong>持仓数量：${quantity.toFixed(4)}</strong> · <strong>持仓价值：${Number.isFinite(positionValue)&&markPrice>0?positionValue.toFixed(2):'--'} USDT</strong> ${Number.isFinite(positionValue)&&markPrice>0?'（'+cnyOnly(positionValue)+'）':''} · 初始保证金(API)：${usdtCny(x.initM)} · 名义价值(API)：${usdtCny(p.notional)}<br>未实现盈亏（有行情时即时验算）：${Number.isFinite(pnl)?usdtCny(pnl,2,true):'--'} · 快照未实现(API)：${p.unRealizedProfit!=null&&Number.isFinite(Number(p.unRealizedProfit))?usdtCny(Number(p.unRealizedProfit),2,true):'--'}<br>强平价(API)：${Number(c.liqPrice)>0?Number(c.liqPrice).toFixed(2):'--'} · 保证金模式：${escHtml(c.mode)}`;
         }
 
@@ -6415,7 +6461,10 @@
             const _roe = (x.valid && x.initM > 0) ? (x.pnlUsdt / x.initM) * 100 : NaN;
             const _roeCls = !Number.isFinite(_roe) ? 'neutral' : _roe > 0 ? 'positive' : _roe < 0 ? 'negative' : 'neutral';
             const _roeText = Number.isFinite(_roe) ? ((_roe > 0 ? '+' : '') + _roe.toFixed(2) + '%') : '--';
+            const _amtAbs = Math.abs(Number(x.positionAmt) || 0);
+            const _notional = (x.priceValid && _amtAbs > 0) ? (_amtAbs * x.price) : Math.abs(Number(c.notional) || 0);
             document.getElementById('detailMetrics').innerHTML = `<div class="detail-metric"><span>未实现盈亏</span><strong class="${pnlCls}">${usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true)}</strong>${ageHtml(markAgeTs(symbol))}</div>
+                ${closeNowDetailHtml(x.valid ? x.pnlUsdt : NaN, c, _notional, markAgeTs(symbol))}
                 <div class="detail-metric"><span>当前标记价</span><strong>${x.priceValid ? x.price.toFixed(2) : '--'}</strong>${ageHtml(markAgeTs(symbol))}</div>
                 <div class="detail-metric"><span>收益率 ROE</span><strong class="${_roeCls}">${_roeText}</strong>${ageHtml(markAgeTs(symbol))}</div>`;
             detailChartEvents = relatedEvents(c, false).concat(relatedEvents(c, true)).sort(function(a,b){ return new Date(a.d)-new Date(b.d); });
@@ -6591,7 +6640,11 @@
                 const roe = (x.valid && x.initM > 0) ? (x.pnlUsdt / x.initM) * 100 : NaN;
                 const roeCls = !Number.isFinite(roe) ? 'neutral' : roe > 0 ? 'positive' : roe < 0 ? 'negative' : 'neutral';
                 const roeText = Number.isFinite(roe) ? ((roe > 0 ? '+' : '') + roe.toFixed(2) + '%') : '--';
+                const c = x.config || {};
+                const amtAbs = Math.abs(Number(x.positionAmt) || 0);
+                const notional = (x.priceValid && amtAbs > 0) ? (amtAbs * x.price) : Math.abs(Number(c.notional) || 0);
                 document.getElementById('detailMetrics').innerHTML = '<div class="detail-metric"><span>未实现盈亏</span><strong class="' + pnlCls + '">' + usdtCny(x.valid ? x.pnlUsdt : NaN, 2, true) + '</strong>' + ageHtml(markAgeTs(activeDetailSymbol)) + '</div>' +
+                    closeNowDetailHtml(x.valid ? x.pnlUsdt : NaN, c, notional, markAgeTs(activeDetailSymbol)) +
                     '<div class="detail-metric"><span>当前标记价</span><strong>' + (x.priceValid ? x.price.toFixed(2) : '--') + '</strong>' + ageHtml(markAgeTs(activeDetailSymbol)) + '</div>' +
                     '<div class="detail-metric"><span>收益率 ROE</span><strong class="' + roeCls + '">' + roeText + '</strong>' + ageHtml(markAgeTs(activeDetailSymbol)) + '</div>';
                 renderRiskDetail(x);
