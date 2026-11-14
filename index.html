@@ -1129,17 +1129,17 @@
                         <span style="margin-left: 20px;">
                             <label style="color: var(--muted); font-size: 11px;">排序：</label>
                             <select id="mainSortSelector" onchange="changeMainSort(this.value)" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer;">
-                                <option value="margin">按保证金（默认）</option>
+                                <option value="margin">按保证金</option>
                                 <option value="qty">按持仓</option>
-                                <option value="liqBuffer">按易爆仓</option>
+                                <option value="liqBuffer" selected>按易爆仓（默认）</option>
                                 <option value="pnl">按总盈亏</option>
                                 <option value="pnlPercent">按收益率</option>
                                 <option value="dayChange">按今日涨跌</option>
                                 <option value="name">按名称</option>
                             </select>
                             <select id="mainSortDirSelector" onchange="changeMainSortDir(this.value)" title="升序或降序" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer; margin-left: 4px;">
-                                <option value="desc" selected>降序</option>
-                                <option value="asc">升序</option>
+                                <option value="desc">降序</option>
+                                <option value="asc" selected>升序</option>
                             </select>
                         </span>
                     </div>
@@ -1151,17 +1151,17 @@
                         <span style="margin-left: 12px;">
                             <label style="color: var(--muted); font-size: 11px;">排序：</label>
                             <select id="subSortSelector" onchange="changeSubSort(this.value)" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer;">
-                                <option value="margin">按保证金（默认）</option>
+                                <option value="margin">按保证金</option>
                                 <option value="qty">按持仓</option>
-                                <option value="liqBuffer">按易爆仓</option>
+                                <option value="liqBuffer" selected>按易爆仓（默认）</option>
                                 <option value="pnl">按总盈亏</option>
                                 <option value="pnlPercent">按收益率</option>
                                 <option value="dayChange">按今日涨跌</option>
                                 <option value="name">按名称</option>
                             </select>
                             <select id="subSortDirSelector" onchange="changeSubSortDir(this.value)" title="升序或降序" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-bg); color: var(--text); font-size: 11px; cursor: pointer; margin-left: 4px;">
-                                <option value="desc" selected>降序</option>
-                                <option value="asc">升序</option>
+                                <option value="desc">降序</option>
+                                <option value="asc" selected>升序</option>
                             </select>
                         </span>
                     </div>
@@ -4631,10 +4631,10 @@
         let lastUpdateTime = 0;
 
         // 排序相关变量
-        let mainSortMode = 'margin'; // margin, qty, liqBuffer, pnl, pnlPercent, dayChange, name
-        let subSortMode = 'margin';
-        let mainSortDir = 'desc'; // desc=降序（默认，数值从大到小），asc=升序
-        let subSortDir = 'desc';
+        let mainSortMode = 'liqBuffer'; // liqBuffer, margin, qty, pnl, pnlPercent, dayChange, name
+        let subSortMode = 'liqBuffer';
+        let mainSortDir = 'asc'; // 易爆仓默认升序（距强平缓冲越小越靠前）；desc=降序，asc=升序
+        let subSortDir = 'asc';
 
         const MODE_META = {
             isolated: { text: '逐仓', tip: '逐仓：每个仓位独立计算保证金与强平，亏损不牵连其他仓位' },
@@ -4731,7 +4731,7 @@
                         const nameB = (b.config.name || symbolB).toLowerCase();
                         return nameA.localeCompare(nameB);
 
-                    case 'margin': // 按保证金排序（从大到小，默认）
+                    case 'margin': // 按保证金排序（从大到小）
                     default:
                         const mA = Number(a.config.initialMargin != null ? a.config.initialMargin : a.config.margin) || 0;
                         const mB = Number(b.config.initialMargin != null ? b.config.initialMargin : b.config.margin) || 0;
@@ -4818,7 +4818,7 @@
                         const nameB = (cfgB.name || symbolB).toLowerCase();
                         return nameA.localeCompare(nameB);
 
-                    case 'margin': // 按保证金排序（默认）
+                    case 'margin': // 按保证金排序
                     default:
                         const marginA = Number(pA.initialMargin != null ? pA.initialMargin : pA.margin) || 0;
                         const marginB = Number(pB.initialMargin != null ? pB.initialMargin : pB.margin) || 0;
