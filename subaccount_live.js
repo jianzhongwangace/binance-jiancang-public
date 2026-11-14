@@ -1,5 +1,6 @@
 window.__BINANCE_SUBACCOUNT__={
     "updatedAt":  "2026-11-14T19:24:02+08:00",
+    "error":  "远程服务器返回错误: (400) 错误的请求。",
     "account":  {
                     "walletBalance":  4755.92852091,
                     "totalWalletBalance":  4755.92852091,
