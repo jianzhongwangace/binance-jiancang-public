@@ -6505,7 +6505,7 @@
             });
             // 汇率到位后刷新加仓试算卡片上的人民币备注（每卡只刷一次，按 lastEdited）
             try {
-                document.querySelectorAll('.pc-addcalc').forEach(function(card) {
+                document.querySelectorAll('.pc-addcalc:not(.pc-margincalc)').forEach(function(card) {
                     const acct = card.getAttribute('data-acct') || 'm';
                     const symbol = card.getAttribute('data-symbol') || '';
                     const saved = (window.__ADD_CALC_INPUTS__ || {})[acct + ':' + symbol];
@@ -6600,6 +6600,7 @@
                     acct: card.getAttribute('data-acct') || 'm',
                     symbol: card.getAttribute('data-symbol') || '',
                     field: ae.getAttribute('data-field') || 'notional',
+                    kind: card.classList.contains('pc-margincalc') ? 'margin' : 'add',
                     start: ae.selectionStart,
                     end: ae.selectionEnd
                 };
@@ -6608,9 +6609,13 @@
         function restoreAddCalcFocus(root, snap) {
             try {
                 if (!snap || !root) return;
-                const card = root.querySelector('.pc-addcalc[data-acct="' + snap.acct + '"][data-symbol="' + snap.symbol + '"]');
+                const isMargin = snap.kind === 'margin' || snap.field === 'marginAdd';
+                const sel = (isMargin ? '.pc-margincalc' : '.pc-addcalc:not(.pc-margincalc)')
+                    + '[data-acct="' + snap.acct + '"][data-symbol="' + snap.symbol + '"]';
+                const card = root.querySelector(sel);
                 if (!card) return;
-                const field = snap.field === 'margin' ? 'margin' : (snap.field === 'margin3' ? 'margin3' : 'notional');
+                const field = isMargin ? 'marginAdd'
+                    : (snap.field === 'margin' ? 'margin' : (snap.field === 'margin3' ? 'margin3' : 'notional'));
                 const inp = card.querySelector('input[data-field="' + field + '"]') || card.querySelector('input');
                 if (!inp) return;
                 // preventScroll：重绘后恢复焦点时不要把页面滚到这张卡片（"自动跳回顶部"的诱因之一）
