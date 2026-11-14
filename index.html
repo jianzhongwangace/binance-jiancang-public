@@ -3280,6 +3280,17 @@
             const now = Date.now();
             const iv = st.interval || '15m';
             const period = candlePeriodMs(iv);
+            if (st.src === 'us') {
+                const sess = (typeof usMarketSession === 'function') ? usMarketSession(now) : '';
+                if (sess === 'pre' || sess === 'regular' || sess === 'post') {
+                    if (isAlignedKlineInterval(iv)) {
+                        const open = Math.floor(now / period) * period;
+                        const dueAt = open + 8000;
+                        if (now >= dueAt && st.lastFetchOk < open) return true;
+                    }
+                    return (now - st.lastFetchOk) >= 60 * 1000;
+                }
+            }
             if (isAlignedKlineInterval(iv)) {
                 const open = Math.floor(now / period) * period;
                 const dueAt = open + 8000;
@@ -3676,7 +3687,7 @@
                 setInterval(function () { syncMiniPositions(); }, 250); // 只跟随位置，不碰数据/图表内容
                 // 主/子/美股：每 15 秒检查是否到点；只有到期的可见卡才重拉（保留旧图，失败不推进时间戳）
                 setInterval(function () { autoReloadVisibleMiniCharts(); }, 15 * 1000);
-                setInterval(function () { updateAllMiniAges(); try { tickDataAges(); } catch (e) {} }, 1000); // 相对时间文案每秒刷新
+                setInterval(function () { updateAllMiniAges(); try { tickDataAges(); } catch (e) {} try { syncMiniLivePrices(); } catch (e) {} }, 1000); // 相对时间文案每秒刷新，现价跟着最新报价
             };
             if (document.body) boot();
             else document.addEventListener('DOMContentLoaded', boot);
@@ -8309,29 +8320,68 @@
             // 报价到位后立刻重绘一次，不等下一个刷新周期
             try { if (typeof renderPositionHome === 'function') renderPositionHome(); } catch (e) {}
             try { if (typeof renderSubaccount === 'function') renderSubaccount(); } catch (e) {}
-            // 同时把美股日线图的最后一根 bar 更新为实时价（不重建图表）
+            // 报价到位后立刻把各周期图的现价/当前 K 线跟上（不重建图表）
             try { updateUSMiniChartsLive(); } catch (e) {}
         }
 
-        // 报价每 60s 到达后，把美股日线图最后一根 bar 原地更新为实时价（只 update 不重建，无闪烁）
-        // 周线/分钟线的最后一根起始时间不是“今天”，直接跳过（切回日线或手动 ↻ 可见最新）
-        function updateUSMiniChartsLive() {
+        function usPeriodStartSec(iv, ts) {
+            if (isAlignedKlineInterval(iv)) {
+                const period = candlePeriodMs(iv);
+                return Math.floor(ts / period) * (period / 1000);
+            }
+            const dayMs = Date.parse(usETDate(ts) + 'T00:00:00Z');
+            if (!Number.isFinite(dayMs)) return NaN;
+            if (iv === '1d') return Math.floor(dayMs / 1000);
+            const d = new Date(dayMs);
+            if (iv === '1M') return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000);
+            const dow = d.getUTCDay();
+            const back = (dow === 0 ? 6 : dow - 1);
+            return Math.floor((dayMs - back * 86400000) / 1000);
+        }
+
+        // 现价跟实时报价或标记价。美股不再只更新日线盘中：周线/月线/分钟线只要还在当前这根，就原地改收盘价。
+        function updateUSMiniChartsLive() { syncMiniLivePrices(); }
+        function syncMiniLivePrices() {
             Object.keys(MINI_CHART.pool).forEach(function (k) {
                 const st = MINI_CHART.pool[k];
-                if (!st || st.src !== 'us' || st.interval !== '1d' || !st.series || !Array.isArray(st.rows) || !st.rows.length) return;
-                const q = US_STOCK_QUOTES[st.symbol];
-                if (!q || !(Number(q.price) > 0) || !q.ts) return;
-                if (!usInRegularHours(q.ts)) return;
-                const t = Math.floor(Date.parse(usETDate(q.ts) + 'T00:00:00Z') / 1000); // 图表 time 为秒
+                if (!st || !st.wrap) return;
+                let px = NaN, q = null, live = null;
+                if (st.src === 'us') {
+                    q = (typeof US_STOCK_QUOTES !== 'undefined') ? US_STOCK_QUOTES[st.symbol] : null;
+                    if (q) {
+                        live = (typeof usLiveQuote === 'function') ? usLiveQuote(q) : null;
+                        if (live && Number(live.price) > 0) px = Number(live.price);
+                        else if (Number(q.price) > 0) px = Number(q.price);
+                    }
+                } else {
+                    const curBox = (st.box && st.box.isConnected) ? Number(st.box.getAttribute('data-cur')) : NaN;
+                    if (curBox > 0) px = curBox;
+                    else if (Number(st.cur) > 0) px = Number(st.cur);
+                }
+                if (!(px > 0)) return;
+                const changed = (st.last !== px) || (st.cur !== px);
+                st.last = px;
+                st.cur = px;
+                if (changed) { try { applyMiniLines(st); } catch (e) {} }
+                updateMiniLast(st);
+                if (st.src !== 'us' || !st.series || !Array.isArray(st.rows) || !st.rows.length) return;
+                const iv = st.interval || '1w';
                 const last = st.rows[st.rows.length - 1];
-                if (!last || last.time !== t) return;
-                const o = Number(q.open), h = Number(q.high), l = Number(q.low), c = Number(q.price);
-                if (!(o > 0) || !(h > 0) || !(l > 0) || !(c > 0)) return;
-                const bar = { time: t, open: o, high: Math.max(h, c), low: Math.min(l, c), close: c };
+                const t = usPeriodStartSec(iv, Date.now());
+                if (!last || !Number.isFinite(t) || Number(last.time) !== t) return;
+                let o = Number(last.open), h = Number(last.high), l = Number(last.low), c = px;
+                const sess = (typeof usMarketSession === 'function') ? usMarketSession(Date.now()) : '';
+                if (iv === '1d' && q && sess === 'regular') {
+                    if (Number(q.open) > 0) o = Number(q.open);
+                    if (Number(q.high) > 0) h = Number(q.high);
+                    if (Number(q.low) > 0) l = Number(q.low);
+                    if (Number(q.price) > 0) c = Number(q.price);
+                }
+                if (!(o > 0) || !(c > 0)) return;
+                const bar = { time: last.time, open: o, high: Math.max(h || c, c), low: Math.min((l > 0 ? l : c), c), close: c };
+                if (last.close === bar.close && last.high === bar.high && last.low === bar.low && last.open === bar.open) return;
                 st.rows[st.rows.length - 1] = bar;
                 try { st.series.update(bar); } catch (e) {}
-                st.last = c;
-                updateMiniLast(st);
             });
         }
 
