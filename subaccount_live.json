@@ -1,6 +1,6 @@
 {
     "updatedAt":  "2026-11-17T09:04:48+08:00",
-    "error":  "基础连接已经关闭: 发送时发生错误。",
+    "error":  "远程服务器返回错误: (400) 错误的请求。",
     "account":  {
                     "walletBalance":  4739.95153742,
                     "totalWalletBalance":  4739.95153742,
