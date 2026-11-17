@@ -1,1 +1,1 @@
-window.__BINANCE_LIVE__ = { error: "远程服务器返回错误: (400) 错误的请求。", updatedAt: "2026-11-18T06:43:50+08:00" };
+window.__BINANCE_LIVE__ = { error: "远程服务器返回错误: (400) 错误的请求。", updatedAt: "2026-11-18T06:47:41+08:00" };
