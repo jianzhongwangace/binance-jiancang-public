@@ -1,6 +1,6 @@
 window.__BINANCE_SUBACCOUNT__={
     "updatedAt":  "2026-11-17T08:51:16+08:00",
-    "error":  "操作超时。",
+    "error":  "基础连接已经关闭: 发送时发生错误。",
     "account":  {
                     "walletBalance":  4739.95153742,
                     "totalWalletBalance":  4739.95153742,
