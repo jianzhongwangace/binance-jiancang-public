@@ -1,12 +1,11 @@
 {
-    "updatedAt":  "2026-11-18T05:28:23+08:00",
-    "error":  "远程服务器返回错误: (400) 错误的请求。",
+    "updatedAt":  "2026-11-18T05:33:35+08:00",
     "account":  {
                     "walletBalance":  4484.62821543,
                     "totalWalletBalance":  4484.62821543,
-                    "totalUnrealizedProfit":  -1265.7738455,
-                    "totalMarginBalance":  3218.85436993,
-                    "totalPositionInitialMargin":  3271.65631081,
+                    "totalUnrealizedProfit":  -1199.86281233,
+                    "totalMarginBalance":  3284.7654031,
+                    "totalPositionInitialMargin":  3284.83851744,
                     "availableBalance":  0,
                     "totalRealizedPnl":  0.0228,
                     "totalFeePaid":  -6.99648931
@@ -19,10 +18,10 @@
                                        "side":  "long",
                                        "leverage":  5,
                                        "liqPrice":  290.404078,
-                                       "markPrice":  381.21176084,
-                                       "unRealizedProfit":  -5.33510813,
-                                       "initialMargin":  276.759738368,
-                                       "notional":  1383.79869184,
+                                       "markPrice":  382.31104954,
+                                       "unRealizedProfit":  -1.34469015,
+                                       "initialMargin":  277.557821966,
+                                       "notional":  1387.78910983,
                                        "mode":  "isolated",
                                        "realizedPnl":  0.0228,
                                        "feePaid":  -0.56185991,
@@ -36,15 +35,15 @@
                                        "side":  "long",
                                        "leverage":  5,
                                        "liqPrice":  135.80581455,
-                                       "markPrice":  159.44,
-                                       "unRealizedProfit":  -753.95869965,
-                                       "initialMargin":  1202.1776,
-                                       "notional":  6010.888,
+                                       "markPrice":  160.31481398,
+                                       "unRealizedProfit":  -720.9782126,
+                                       "initialMargin":  1208.773697408,
+                                       "notional":  6043.86848704,
                                        "mode":  "isolated",
                                        "realizedPnl":  0,
                                        "feePaid":  -2.7059386699999997,
                                        "fundingFee":  -24.190714800000002,
-                                       "feeRate":  0.0004
+                                       "feeRate":  0
                                    },
                       "GOOGLUSDT":  {
                                         "entryPrice":  289.5767019545,
@@ -53,15 +52,15 @@
                                         "side":  "long",
                                         "leverage":  5,
                                         "liqPrice":  225.42099605,
-                                        "markPrice":  280.61,
-                                        "unRealizedProfit":  -110.11109994,
-                                        "initialMargin":  689.17816,
-                                        "notional":  3445.8908,
+                                        "markPrice":  281.63232447,
+                                        "unRealizedProfit":  -97.55695545,
+                                        "initialMargin":  691.688988898,
+                                        "notional":  3458.44494449,
                                         "mode":  "isolated",
                                         "realizedPnl":  0,
                                         "feePaid":  -1.42240075,
                                         "fundingFee":  -17.956988190000004,
-                                        "feeRate":  0.0004
+                                        "feeRate":  0
                                     },
                       "BTCUSDT":  {
                                       "entryPrice":  76974.68823529,
@@ -70,15 +69,15 @@
                                       "side":  "long",
                                       "leverage":  5,
                                       "liqPrice":  57653.85608197,
-                                      "markPrice":  64339.13264493,
-                                      "unRealizedProfit":  -214.80444503,
-                                      "initialMargin":  218.753050992,
-                                      "notional":  1093.76525496,
+                                      "markPrice":  64613.2,
+                                      "unRealizedProfit":  -210.14529999,
+                                      "initialMargin":  219.68488000000002,
+                                      "notional":  1098.4244,
                                       "mode":  "cross",
                                       "realizedPnl":  0,
                                       "feePaid":  -0.65428485,
                                       "fundingFee":  -2.85206097,
-                                      "feeRate":  0.0005
+                                      "feeRate":  0
                                   },
                       "METAUSDT":  {
                                        "entryPrice":  678.177628866,
@@ -87,15 +86,15 @@
                                        "side":  "long",
                                        "leverage":  5,
                                        "liqPrice":  466.0212588,
-                                       "markPrice":  619.99285258,
-                                       "unRealizedProfit":  -56.43923299,
-                                       "initialMargin":  120.2786134,
-                                       "notional":  601.393067,
+                                       "markPrice":  620.16353344,
+                                       "unRealizedProfit":  -56.27367255,
+                                       "initialMargin":  120.311725486,
+                                       "notional":  601.55862743,
                                        "mode":  "isolated",
                                        "realizedPnl":  0,
                                        "feePaid":  -0.26313292,
                                        "fundingFee":  -1.9841102900000003,
-                                       "feeRate":  0.0004
+                                       "feeRate":  0
                                    },
                       "ANTUSDT":  {
                                       "entryPrice":  95.48,
@@ -104,15 +103,15 @@
                                       "side":  "long",
                                       "leverage":  5,
                                       "liqPrice":  78.3476074,
-                                      "markPrice":  96.76181818,
-                                      "unRealizedProfit":  6.38345453,
-                                      "initialMargin":  96.374770906000009,
-                                      "notional":  481.87385453,
+                                      "markPrice":  97.497,
+                                      "unRealizedProfit":  10.04466,
+                                      "initialMargin":  97.107012,
+                                      "notional":  485.53506,
                                       "mode":  "isolated",
                                       "realizedPnl":  0,
                                       "feePaid":  0,
                                       "fundingFee":  -0.02448772,
-                                      "feeRate":  0.0004
+                                      "feeRate":  0
                                   },
                       "OPENAIUSDT":  {
                                          "entryPrice":  1482.1259183673471,
@@ -121,15 +120,15 @@
                                          "side":  "long",
                                          "leverage":  5,
                                          "liqPrice":  1019.01260269,
-                                         "markPrice":  1248.81803279,
-                                         "unRealizedProfit":  -114.32086392,
-                                         "initialMargin":  122.38416721200001,
-                                         "notional":  611.92083606,
+                                         "markPrice":  1248.68727273,
+                                         "unRealizedProfit":  -114.38493635,
+                                         "initialMargin":  122.37135272600001,
+                                         "notional":  611.85676363,
                                          "mode":  "isolated",
                                          "realizedPnl":  0,
                                          "feePaid":  -0.29049668,
                                          "fundingFee":  -2.4308957400000004,
-                                         "feeRate":  0.0004
+                                         "feeRate":  0
                                      },
                       "SPCXUSDT":  {
                                        "entryPrice":  143.3910652742,
@@ -138,15 +137,15 @@
                                        "side":  "long",
                                        "leverage":  5,
                                        "liqPrice":  105.80472244,
-                                       "markPrice":  142.50185062,
-                                       "unRealizedProfit":  -17.02846054,
-                                       "initialMargin":  545.782087874,
-                                       "notional":  2728.91043937,
+                                       "markPrice":  142.92,
+                                       "unRealizedProfit":  -9.02089992,
+                                       "initialMargin":  547.3836,
+                                       "notional":  2736.918,
                                        "mode":  "isolated",
                                        "realizedPnl":  0,
                                        "feePaid":  -1.0983755300000004,
                                        "fundingFee":  -14.90099291,
-                                       "feeRate":  0.0004
+                                       "feeRate":  0
                                    }
                   }
 }
