@@ -1,6 +1,6 @@
 window.__BINANCE_SUBACCOUNT__={
     "updatedAt":  "2026-11-18T13:30:55+08:00",
-    "error":  "基础连接已经关闭: 发送时发生错误。",
+    "error":  "远程服务器返回错误: (400) 错误的请求。",
     "account":  {
                     "walletBalance":  4483.75637352,
                     "totalWalletBalance":  4483.75637352,
