@@ -1,14 +1,14 @@
 window.__BINANCE_SUBACCOUNT__={
-    "updatedAt":  "2026-11-18T17:06:31+08:00",
+    "updatedAt":  "2026-11-18T23:15:17+08:00",
     "account":  {
                     "walletBalance":  4483.36514373,
                     "totalWalletBalance":  4483.36514373,
-                    "totalUnrealizedProfit":  -1155.72261764,
-                    "totalMarginBalance":  3327.64252609,
-                    "totalPositionInitialMargin":  3293.66655639,
+                    "totalUnrealizedProfit":  -1346.78079519,
+                    "totalMarginBalance":  3136.58434854,
+                    "totalPositionInitialMargin":  3255.45492089,
                     "availableBalance":  0,
-                    "totalRealizedPnl":  0,
-                    "totalFeePaid":  -6.4346294
+                    "totalRealizedPnl":  0.0228,
+                    "totalFeePaid":  -6.99648931
                 },
     "positions":  {
                       "TSLAUSDT":  {
@@ -18,15 +18,15 @@ window.__BINANCE_SUBACCOUNT__={
                                        "side":  "long",
                                        "leverage":  5,
                                        "liqPrice":  290.404078,
-                                       "markPrice":  385.38252786,
-                                       "unRealizedProfit":  9.80477614,
-                                       "initialMargin":  279.787715226,
-                                       "notional":  1398.93857613,
+                                       "markPrice":  384.77,
+                                       "unRealizedProfit":  7.58130001,
+                                       "initialMargin":  279.34301999999997,
+                                       "notional":  1396.7151,
                                        "mode":  "isolated",
-                                       "realizedPnl":  null,
-                                       "feePaid":  null,
-                                       "fundingFee":  null,
-                                       "feeRate":  null
+                                       "realizedPnl":  0.0228,
+                                       "feePaid":  -0.56185991,
+                                       "fundingFee":  -1.04869756,
+                                       "feeRate":  0.0004
                                    },
                       "NVDAUSDT":  {
                                        "entryPrice":  179.4389045092,
@@ -35,15 +35,15 @@ window.__BINANCE_SUBACCOUNT__={
                                        "side":  "long",
                                        "leverage":  5,
                                        "liqPrice":  135.80581455,
-                                       "markPrice":  160.65251702,
-                                       "unRealizedProfit":  -708.24680799,
-                                       "initialMargin":  1211.3199783300001,
-                                       "notional":  6056.59989165,
+                                       "markPrice":  154.89,
+                                       "unRealizedProfit":  -925.49369965,
+                                       "initialMargin":  1167.8706,
+                                       "notional":  5839.353,
                                        "mode":  "isolated",
                                        "realizedPnl":  0,
                                        "feePaid":  -2.7059386699999997,
                                        "fundingFee":  -24.190714800000002,
-                                       "feeRate":  0
+                                       "feeRate":  0.0004
                                    },
                       "GOOGLUSDT":  {
                                         "entryPrice":  289.5767019545,
@@ -52,15 +52,15 @@ window.__BINANCE_SUBACCOUNT__={
                                         "side":  "long",
                                         "leverage":  5,
                                         "liqPrice":  225.53596832,
-                                        "markPrice":  282.91,
-                                        "unRealizedProfit":  -81.86709994,
-                                        "initialMargin":  694.82696,
-                                        "notional":  3474.1348,
+                                        "markPrice":  283.82,
+                                        "unRealizedProfit":  -70.69229994,
+                                        "initialMargin":  697.06192,
+                                        "notional":  3485.3096,
                                         "mode":  "isolated",
                                         "realizedPnl":  0,
                                         "feePaid":  -1.42240075,
                                         "fundingFee":  -19.354729070000005,
-                                        "feeRate":  0
+                                        "feeRate":  0.0004
                                     },
                       "BTCUSDT":  {
                                       "entryPrice":  76974.68823529,
@@ -69,15 +69,15 @@ window.__BINANCE_SUBACCOUNT__={
                                       "side":  "long",
                                       "leverage":  5,
                                       "liqPrice":  57659.81549255,
-                                      "markPrice":  64726.75006747,
-                                      "unRealizedProfit":  -208.21494885,
-                                      "initialMargin":  220.070950228,
-                                      "notional":  1100.35475114,
+                                      "markPrice":  63589.87421014,
+                                      "unRealizedProfit":  -227.54183842,
+                                      "initialMargin":  216.205572314,
+                                      "notional":  1081.02786157,
                                       "mode":  "cross",
                                       "realizedPnl":  0,
                                       "feePaid":  -0.65428485,
                                       "fundingFee":  -2.9529657100000004,
-                                      "feeRate":  0
+                                      "feeRate":  0.0005
                                   },
                       "METAUSDT":  {
                                        "entryPrice":  678.177628866,
@@ -86,15 +86,15 @@ window.__BINANCE_SUBACCOUNT__={
                                        "side":  "long",
                                        "leverage":  5,
                                        "liqPrice":  466.0212588,
-                                       "markPrice":  622.69,
-                                       "unRealizedProfit":  -53.82299999,
-                                       "initialMargin":  120.80186,
-                                       "notional":  604.0093,
+                                       "markPrice":  619.80383805,
+                                       "unRealizedProfit":  -56.62257708,
+                                       "initialMargin":  120.24194458,
+                                       "notional":  601.2097229,
                                        "mode":  "isolated",
                                        "realizedPnl":  0,
                                        "feePaid":  -0.26313292,
                                        "fundingFee":  -1.9841102900000003,
-                                       "feeRate":  0
+                                       "feeRate":  0.0004
                                    },
                       "ANTUSDT":  {
                                       "entryPrice":  95.48,
@@ -103,15 +103,15 @@ window.__BINANCE_SUBACCOUNT__={
                                       "side":  "long",
                                       "leverage":  5,
                                       "liqPrice":  78.3576653,
-                                      "markPrice":  97.556,
-                                      "unRealizedProfit":  10.33848,
-                                      "initialMargin":  97.165776000000008,
-                                      "notional":  485.82888,
+                                      "markPrice":  97.51210526,
+                                      "unRealizedProfit":  10.11988419,
+                                      "initialMargin":  97.122056838,
+                                      "notional":  485.61028419,
                                       "mode":  "isolated",
                                       "realizedPnl":  0,
                                       "feePaid":  0,
                                       "fundingFee":  -0.07332384,
-                                      "feeRate":  0
+                                      "feeRate":  0.0004
                                   },
                       "OPENAIUSDT":  {
                                          "entryPrice":  1482.1259183673471,
@@ -120,15 +120,15 @@ window.__BINANCE_SUBACCOUNT__={
                                          "side":  "long",
                                          "leverage":  5,
                                          "liqPrice":  1019.1393818,
-                                         "markPrice":  1239.24925,
-                                         "unRealizedProfit":  -119.00956749,
-                                         "initialMargin":  121.4464265,
-                                         "notional":  607.2321325,
+                                         "markPrice":  1247.26133333,
+                                         "unRealizedProfit":  -115.08364666,
+                                         "initialMargin":  122.23161066600001,
+                                         "notional":  611.15805333,
                                          "mode":  "isolated",
                                          "realizedPnl":  0,
                                          "feePaid":  -0.29049668,
                                          "fundingFee":  -2.4914644600000004,
-                                         "feeRate":  0
+                                         "feeRate":  0.0004
                                      },
                       "SPCXUSDT":  {
                                        "entryPrice":  143.3910652742,
@@ -137,15 +137,15 @@ window.__BINANCE_SUBACCOUNT__={
                                        "side":  "long",
                                        "leverage":  5,
                                        "liqPrice":  105.78659003,
-                                       "markPrice":  143.18,
-                                       "unRealizedProfit":  -4.04189992,
-                                       "initialMargin":  548.3794,
-                                       "notional":  2741.897,
+                                       "markPrice":  144.94892036,
+                                       "unRealizedProfit":  29.83292497,
+                                       "initialMargin":  555.154364978,
+                                       "notional":  2775.77182489,
                                        "mode":  "isolated",
                                        "realizedPnl":  0,
                                        "feePaid":  -1.0983755300000004,
                                        "fundingFee":  -14.55601415,
-                                       "feeRate":  0
+                                       "feeRate":  0.0004
                                    }
                   }
 };
