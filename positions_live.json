@@ -1,5 +1,6 @@
 {
     "updatedAt":  "2026-11-26T01:17:30+08:00",
+    "error":  "远程服务器返回错误: (418) I\u0027m a teapot。",
     "account":  {
                     "walletBalance":  3488.75052168,
                     "totalWalletBalance":  3488.75052168,
