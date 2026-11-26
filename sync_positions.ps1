@@ -12,27 +12,26 @@ $OutJsonOkBak = Join-Path $ScriptDir 'positions_live.ok.json.bak'
 $CredPath = Join-Path $env:USERPROFILE '.binance_api.env'
 $BaseUrl = 'https://fapi.binance.com'  # 神舟直连币安
 $RecvWindow = 60000
-$LoopSleepSec = 25          # was 5 — too aggressive vs Binance IP ban
+$LoopSleepSec = 30          # 每 30 秒同步一次（扣除请求耗时，固定节拍）
 $MaxBackoffSec = 300
 $script:BackoffSec = 0
 $script:LastGoodJs = $null
 $script:LastGoodJson = $null
-try {
-    foreach ($cand in @($OutJsonOkBak, $OutJson)) {
-        if (Test-Path -LiteralPath $cand) {
-            $pj = Get-Content -LiteralPath $cand -Raw -ErrorAction Stop | ConvertFrom-Json
-            if ($pj -and $pj.account) {
-                $script:LastGoodJson = (Get-Content -LiteralPath $cand -Raw)
-                $jsCand = if ($cand -eq $OutJsonOkBak) { $OutJsOkBak } else { $OutJs }
-                if (Test-Path -LiteralPath $jsCand) {
-                    $jr = Get-Content -LiteralPath $jsCand -Raw
-                    if ($jr -match 'account\s*:') { $script:LastGoodJs = $jr }
-                }
-                break
+foreach ($cand in @($OutJsonOkBak, $OutJson)) {
+    if (-not (Test-Path -LiteralPath $cand)) { continue }
+    try {
+        $pj = Get-Content -LiteralPath $cand -Raw -ErrorAction Stop | ConvertFrom-Json
+        if ($pj -and $pj.account) {
+            $script:LastGoodJson = (Get-Content -LiteralPath $cand -Raw)
+            $jsCand = if ($cand -eq $OutJsonOkBak) { $OutJsOkBak } else { $OutJs }
+            if (Test-Path -LiteralPath $jsCand) {
+                $jr = Get-Content -LiteralPath $jsCand -Raw
+                if ($jr -match 'account\s*:') { $script:LastGoodJs = $jr }
             }
+            break
         }
-    }
-} catch {}
+    } catch {}
+}
 
 # ---- 代理自主探测（不依赖系统 ProxyEnable 开关）-----------------------------
 # 系统代理开关被关掉时，.NET/Invoke-RestMethod 会走直连，而直连币安不通 -> 全体超时。
@@ -79,7 +78,77 @@ function Get-ProxyUri {
     $script:ProxyCheckedAt = $now
     return $null
 }
+# ---- 币安限流/封禁保护（2026-11-26）---------------------------------------------
+# 418 = 当前出口 IP 已被币安封禁，429 = 即将被封。封禁期间再发任何请求（含 ping/time）都会让封禁升级。
+# 做法：解析币安返回的 Retry-After / "banned until"，写入共享文件 binance_ban.json；
+# 主账户、子账户、本地刷新服务（8788）都读这个文件，解封之前一律不再访问币安。
+$SyncName = 'positions'
+$BanFile = Join-Path $ScriptDir 'binance_ban.json'
+$script:BanUntilMs = [int64]0
+$script:RlBackoffSec = 0
+$script:BanReportedFor = [int64]0
+function Get-NowMs { return [int64][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+function Get-BanUntilMs {
+    $u = [int64]$script:BanUntilMs
+    try {
+        if (Test-Path -LiteralPath $BanFile) {
+            $b = Get-Content -LiteralPath $BanFile -Raw -ErrorAction Stop | ConvertFrom-Json
+            $f = [int64]$b.untilMs
+            if ($f -gt $u) { $u = $f }
+        }
+    } catch {}
+    return $u
+}
+function Format-BanTime([int64]$ms) {
+    return [DateTimeOffset]::FromUnixTimeMilliseconds($ms).ToLocalTime().ToString('HH:mm:ss')
+}
+function Get-BanMessage([int64]$until) {
+    return ('HTTP 418/429 币安限流封禁中，预计 {0} 解除；期间后台暂停所有请求' -f (Format-BanTime $until))
+}
+function Register-RateLimit($err, [string]$source) {
+    $now = Get-NowMs
+    $code = 0; $retry = 0; $body = ''
+    try {
+        $resp = $err.Exception.Response
+        if ($resp) {
+            $code = [int]$resp.StatusCode
+            $ra = [string]$resp.Headers['Retry-After']
+            if ($ra) { [void][int]::TryParse($ra, [ref]$retry) }
+        }
+    } catch {}
+    try { if ($err.ErrorDetails -and $err.ErrorDetails.Message) { $body = [string]$err.ErrorDetails.Message } } catch {}
+    if ($code -ne 418 -and $code -ne 429) {
+        if ([string]$err.Exception.Message -match '418|teapot') { $code = 418 } else { $code = 429 }
+    }
+    $until = [int64]0
+    if ($body -match 'banned until (\d{12,})') { $until = [int64]$Matches[1] }
+    if ($retry -gt 0) { $until = [Math]::Max($until, $now + [int64]$retry * 1000) }
+    if ($until -le $now) {
+        # 币安没给具体时间：418 从 2 分钟起、429 从 1 分钟起，连续触发翻倍，最长 30 分钟
+        $base = 60
+        if ($code -eq 418) { $base = 120 }
+        if ($script:RlBackoffSec -lt $base) { $script:RlBackoffSec = $base }
+        else { $script:RlBackoffSec = [Math]::Min(1800, [int]($script:RlBackoffSec * 2)) }
+        $until = $now + [int64]$script:RlBackoffSec * 1000
+    }
+    $until = $until + 3000
+    $existing = Get-BanUntilMs
+    if ($until -gt $existing) {
+        $script:BanUntilMs = $until
+        try {
+            $o = [ordered]@{ untilMs = $until; until = (Format-BanTime $until); code = $code; source = $source; at = (Get-Date).ToString('yyyy-MM-ddTHH:mm:sszzz'); detail = $body }
+            [System.IO.File]::WriteAllText($BanFile, ($o | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding($false)))
+        } catch {}
+    } else {
+        $script:BanUntilMs = $existing
+    }
+    Write-Host ('RATELIMIT HTTP {0} -> pause until {1} retryAfter={2}s {3}' -f $code, (Format-BanTime $script:BanUntilMs), $retry, $body)
+}
+
 function Invoke-BinanceGet([string]$url, $headers) {
+    # 封禁期间不发任何请求（连代理探测的 ping 也不发），直接抛出限流错误
+    $banU = Get-BanUntilMs
+    if ($banU -gt (Get-NowMs)) { throw (Get-BanMessage $banU) }
     $px = Get-ProxyUri
 
     # 添加完整的浏览器请求头，避免被识别为机器人
@@ -112,6 +181,7 @@ function Invoke-BinanceGet([string]$url, $headers) {
     } catch {
         $em = $_.Exception.Message
         # 限流时不要清代理+重探（会额外狂打 ping，加重 418）；其它错误才清缓存
+        if ($em -match '418|429|Too Many Requests|teapot') { Register-RateLimit $_ $SyncName }
         if ($em -notmatch '418|429|Too Many Requests|teapot') {
             $script:ProxyUri = $null
             $script:ProxyCheckedAt = [int64]0
@@ -123,7 +193,11 @@ function Invoke-BinanceGet([string]$url, $headers) {
 # Realized PnL / commission / fee-rate cache. The income endpoint is heavy
 # (weight 30 per symbol) so it refreshes every 10 minutes instead of every loop.
 $RealizedCache = Join-Path $ScriptDir 'realized_cache.json'
-$RealizedTtlSec = 600
+$RealizedTtlSec = 120   # 实现盈亏兜底每 2 分钟重拉；钱包余额/持仓数量一变则下一轮立即重拉
+# 手续费率几乎不变，单独缓存 1 小时（每个币种省一次 weight 20 的请求）
+$FeeRateTtlSec = 3600
+$script:FeeRateCache = @{}
+$script:RealizedFp = $null
 
 
 function Write-Utf8NoBom([string]$Path, [string]$Content) {
@@ -145,12 +219,16 @@ function Write-LiveError([string]$Message) {
     $escaped = $Message.Replace('\', '\\').Replace('"', '\"').Replace("`r", '').Replace("`n", ' ')
     $prev = $null
     $jsBase = $null
-    try {
-        foreach ($cand in @($OutJson, $OutJsonOkBak)) {
-            if (-not (Test-Path -LiteralPath $cand)) { continue }
+    # 每个候选独立 try：并发写入时某个文件被截断不能拖垮整条兜底链，
+    # 否则会退化成"纯错误"覆盖掉好数据（2026-11-18 15:54 之后就是这样丢的）。
+    foreach ($cand in @($OutJson, $OutJsonOkBak)) {
+        if (-not (Test-Path -LiteralPath $cand)) { continue }
+        try {
             $pj = Get-Content -LiteralPath $cand -Raw -ErrorAction Stop | ConvertFrom-Json
             if ($pj -and $pj.account) { $prev = $pj; break }
-        }
+        } catch {}
+    }
+    try {
         if ($script:LastGoodJs -and ($script:LastGoodJs -match 'account\s*:')) {
             $jsBase = $script:LastGoodJs
         } elseif (Test-Path -LiteralPath $OutJsOkBak) {
@@ -160,10 +238,10 @@ function Write-LiveError([string]$Message) {
             $jr = Get-Content -LiteralPath $OutJs -Raw
             if ($jr -match 'account\s*:') { $jsBase = $jr }
         }
-        if (-not $prev -and $script:LastGoodJson) {
-            try { $prev = $script:LastGoodJson | ConvertFrom-Json } catch {}
-        }
     } catch {}
+    if (-not $prev -and $script:LastGoodJson) {
+        try { $prev = $script:LastGoodJson | ConvertFrom-Json } catch {}
+    }
 
     if ($prev -and $prev.account) {
         $payload = [ordered]@{
@@ -215,8 +293,40 @@ function Get-HmacSha256Hex([string]$Secret, [string]$Payload) {
     return ([BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
 }
 
+# 本机时钟可能比币安快（实测 +1.6s）。币安拒绝 timestamp 超前 >1000ms（code -1021 / HTTP 400），
+# recvWindow 只管"落后"不管"超前"，所以必须用币安服务器时间。/fapi/v1/time 是公开接口，
+# 这里取一次锚点并缓存 10 分钟，之后用本机时钟增量推算，避免每次签名多打一次请求。
+$script:ServerTimeAnchor = [int64]0
+$script:ServerTimeLocalAt = [int64]0
+function Get-ServerTimeMs {
+    $now = [int64][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    if ($script:ServerTimeAnchor -gt 0 -and ($now - $script:ServerTimeLocalAt) -lt 600000) {
+        if ($env:BINANCE_SYNC_DEBUG) { Write-Host "[time] cached anchor=$($script:ServerTimeAnchor) localAt=$($script:ServerTimeLocalAt) now=$now -> $(($script:ServerTimeAnchor + ($now - $script:ServerTimeLocalAt)))" }
+        return ($script:ServerTimeAnchor + ($now - $script:ServerTimeLocalAt))
+    }
+    try {
+        $px = Get-ProxyUri
+        $url = "$BaseUrl/fapi/v1/time"
+        if ($px) { $r = Invoke-RestMethod -Uri $url -TimeoutSec 10 -Proxy ([uri]$px) -UseBasicParsing }
+        else     { $r = Invoke-RestMethod -Uri $url -TimeoutSec 10 -UseBasicParsing }
+        $srv = [int64]$r.serverTime
+        if ($env:BINANCE_SYNC_DEBUG) { Write-Host "[time] calibrate srv=$srv now=$now diff=$($srv-$now) px=$px" }
+        if ($srv -gt 0) {
+            # srv 是"收到响应时"的服务器时间，必须配"收到响应时"的本机时间。
+            # 若用请求发出前的 $now 做锚点，RTT(约 1~2s) 会被算进后续推算，
+            # 导致缓存分支的时间戳反超服务器 -> -1021 / HTTP 400。
+            $script:ServerTimeAnchor = $srv
+            $script:ServerTimeLocalAt = [int64][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            return $srv
+        }
+    } catch {
+        if ($env:BINANCE_SYNC_DEBUG) { Write-Host "[time] calibrate FAILED: $($_.Exception.Message)" }
+    }
+    return ($now - 2000)   # 校时失败时保守回退：往前拨 2 秒，避免 -1021
+}
+
 function Invoke-SignedGet([string]$Path, [hashtable]$Creds, [hashtable]$ExtraQuery) {
-    $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $timestamp = Get-ServerTimeMs
     $parts = New-Object System.Collections.Generic.List[string]
     if ($ExtraQuery) {
         foreach ($k in $ExtraQuery.Keys) {
@@ -228,6 +338,7 @@ function Invoke-SignedGet([string]$Path, [hashtable]$Creds, [hashtable]$ExtraQue
     $qs = [string]::Join('&', $parts)
     $sig = Get-HmacSha256Hex -Secret $Creds['BINANCE_API_SECRET'] -Payload $qs
     $url = "$BaseUrl$Path`?$qs&signature=$sig"
+    if ($env:BINANCE_SYNC_DEBUG) { Write-Host ("[sync] ts=$timestamp local=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) path=$Path") }
     # 注意：不能在 -Headers 里塞 Connection，.NET 会拒（Keep-Alive/Close 属性限制）。
     # 换代理节点后旧隧道会一直 451/403，所以失败时清掉 ServicePoint 连接池再重试一次。
     $headers = @{ 'X-MBX-APIKEY' = $Creds['BINANCE_API_KEY'] }
@@ -276,12 +387,15 @@ function Read-RealizedCache {
 }
 
 # Rolling 89-day window (Binance caps income queries at 90 days back).
-function Get-RealizedStats([hashtable]$Creds, [string[]]$Symbols) {
+function Get-RealizedStats([hashtable]$Creds, [string[]]$Symbols, [bool]$Force = $false) {
     $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $cache = Read-RealizedCache
-    if ($cache -and $cache.at) {
+    if ($cache -and $cache.at -and -not $Force) {
         $age = $now - [long]$cache.at
-        if ($age -ge 0 -and $age -lt ($RealizedTtlSec * 1000)) { return $cache }
+        # 缓存里缺了新开仓的币种也要重拉
+        $missing = $false
+        foreach ($s in $Symbols) { if (-not (Get-SymStats $cache.data $s)) { $missing = $true; break } }
+        if (-not $missing -and $age -ge 0 -and $age -lt ($RealizedTtlSec * 1000)) { return $cache }
     }
 
     $start = [DateTimeOffset]::UtcNow.AddDays(-89).ToUnixTimeMilliseconds()
@@ -302,11 +416,20 @@ function Get-RealizedStats([hashtable]$Creds, [string[]]$Symbols) {
                 elseif ($t -eq 'FUNDING_FEE') { $ff += $v }
             }
             $maker = 0.0; $taker = 0.0
-            try {
-                $cr = Invoke-SignedGet -Path '/fapi/v1/commissionRate' -Creds $Creds -ExtraQuery @{ symbol = $sym }
-                [void][double]::TryParse([string]$cr.makerCommissionRate, [ref]$maker)
-                [void][double]::TryParse([string]$cr.takerCommissionRate, [ref]$taker)
-            } catch {}
+            $fc = $script:FeeRateCache[$sym]
+            if ($fc -and ($now - [int64]$fc.at) -lt ($FeeRateTtlSec * 1000)) {
+                $maker = [double]$fc.maker; $taker = [double]$fc.taker
+            } else {
+                try {
+                    $cr = Invoke-SignedGet -Path '/fapi/v1/commissionRate' -Creds $Creds -ExtraQuery @{ symbol = $sym }
+                    [void][double]::TryParse([string]$cr.makerCommissionRate, [ref]$maker)
+                    [void][double]::TryParse([string]$cr.takerCommissionRate, [ref]$taker)
+                    $script:FeeRateCache[$sym] = @{ at = $now; maker = $maker; taker = $taker }
+                } catch {
+                    $prevRate = Get-SymStats $(if ($cache) { $cache.data } else { $null }) $sym
+                    if ($prevRate) { $maker = Get-Rv $prevRate 'maker'; $taker = Get-Rv $prevRate 'taker' }
+                }
+            }
             $map[$sym] = [ordered]@{
                 realized   = $rp
                 commission = $cm
@@ -450,11 +573,18 @@ function Sync-Once {
         }
     }
 
-    # realized pnl / commission / fee rate (cached 10 min, does not block pricing data)
+    # 实现盈亏 / 手续费 / 资金费：兜底 2 分钟；钱包余额或持仓数量变化（成交、资金费结算）时立即重拉
     $symList = @($posMap.Keys)
+    $fpParts = New-Object System.Collections.Generic.List[string]
+    $fpParts.Add([string]$account.totalWalletBalance)
+    foreach ($k in ($symList | Sort-Object)) { $fpParts.Add(('{0}:{1}' -f $k, $posMap[$k].positionAmt)) }
+    $fp = [string]::Join('|', $fpParts)
+    $forceRealized = ($null -ne $script:RealizedFp -and $script:RealizedFp -ne $fp)
+    if ($forceRealized) { Write-Host 'REALIZED refresh: wallet/position changed' }
     $realized = $null
     try {
-        $realized = Get-RealizedStats -Creds $creds -Symbols $symList
+        $realized = Get-RealizedStats -Creds $creds -Symbols $symList -Force $forceRealized
+        if ($realized) { $script:RealizedFp = $fp }
     } catch {
         Write-Host ("WARN realized stats failed: {0}" -f $_.Exception.Message)
     }
@@ -564,8 +694,24 @@ try {
 # stagger vs subaccount (sub sleeps 30s + 8s initial offset)
 Start-Sleep -Seconds 2
 while ($true) {
+    # 封禁中：一直等到解封，不发任何请求（只在进入封禁时写一次错误状态给页面看）
+    $banU = Get-BanUntilMs
+    $nowMs = Get-NowMs
+    if ($banU -gt $nowMs) {
+        if ($script:BanReportedFor -ne $banU) {
+            $script:BanReportedFor = $banU
+            try { Write-LiveError -Message (Get-BanMessage $banU) } catch {}
+        }
+        $waitSec = [int][Math]::Ceiling(($banU - $nowMs) / 1000.0)
+        Write-Host ('WAIT banned until {0} ({1}s), no requests sent' -f (Format-BanTime $banU), $waitSec)
+        if ($Once) { break }
+        Start-Sleep -Seconds ([Math]::Max(1, [Math]::Min($waitSec, 600)))
+        continue
+    }
+    $cycleStart = Get-Date
     try {
         Sync-Once
+        $script:RlBackoffSec = 0
     } catch {
         $msg = $_.Exception.Message
         try {
@@ -577,17 +723,18 @@ while ($true) {
             }
         } catch {}
         Write-Host ("ERR {0}" -f $msg)
-        # 限流：指数退避；无论何种错误都不写空数据（Write-LiveError 会保留上一份成功快照）
+        # 限流：已在 Invoke-BinanceGet 里登记封禁时间；错误信息带上「预计解除时间」给页面显示
         if ($msg -match '418|429|Too Many Requests|teapot') {
-            if ($script:BackoffSec -le 0) { $script:BackoffSec = 30 }
-            else { $script:BackoffSec = [Math]::Min($MaxBackoffSec, [int]($script:BackoffSec * 2)) }
-            Write-Host ("BACKOFF {0}s after rate limit" -f $script:BackoffSec)
+            $bu = Get-BanUntilMs
+            if ($bu -gt (Get-NowMs)) {
+                if ($msg -notmatch '封禁中') { $msg = (Get-BanMessage $bu) + ' | ' + $msg }
+                $script:BanReportedFor = $bu
+            }
         }
+        # 无论何种错误都不写空数据（Write-LiveError 会保留上一份成功快照）
         try { Write-LiveError -Message $msg } catch { Write-Host ("ERR write failed: {0}" -f $_.Exception.Message) }
     }
     if ($Once) { break }
-    $sleepSec = $LoopSleepSec
-    if ($script:BackoffSec -gt 0) { $sleepSec = $script:BackoffSec }
-    Start-Sleep -Seconds $sleepSec
+    $elapsedMs = [int]((Get-Date) - $cycleStart).TotalMilliseconds
+    Start-Sleep -Milliseconds ([Math]::Max(1000, $LoopSleepSec * 1000 - $elapsedMs))
 }
-

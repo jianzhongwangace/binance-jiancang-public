@@ -1096,6 +1096,7 @@
             <button class="btn" onclick="location.reload()">🔄 重新连接</button>
             <button class="btn" id="toggleBtn" onclick="toggleStream()">⏸️ 暂停更新</button>
             <button class="btn" id="apiRefreshBtn" onclick="refreshFromBinanceApi()">⬇️ 一键从币安API更新</button>
+            <span id="bgSvcStatus" style="font-size:11px;color:var(--muted);align-self:center;" title="">后台：检测中…</span>
             <div id="liveAccountBar" class="lab-muted">持仓同步：等待自动同步写入 positions_live.js …（登录后后台已自启，请稍候）</div>
         </div>
 
@@ -1759,6 +1760,55 @@
     </div><!-- 关闭 page-wrapper -->
 
     <script>
+        // ===== 币安限流保护（2026-11-26）=====
+        // 任一币安 HTTP 请求（直连或经 127.0.0.1:8788）收到 418/429 后，暂停全部币安 HTTP 请求直到解封；
+        // 封禁期间继续请求会让币安把封禁时间越拉越长。WebSocket 不受影响。
+        (function () {
+            if (window.__binanceGuardInstalled || typeof window.fetch !== 'function') return;
+            window.__binanceGuardInstalled = true;
+            window.__BINANCE_BAN_UNTIL__ = 0;
+            const rawFetch = window.fetch.bind(window);
+            function isBinanceUrl(u) {
+                return /^https?:\/\/([a-z0-9-]+\.)*binance\.com\//i.test(u) || /^https?:\/\/127\.0\.0\.1:8788\/(fapi|api)\//i.test(u);
+            }
+            function setBan(until) {
+                if (until > (window.__BINANCE_BAN_UNTIL__ || 0)) {
+                    window.__BINANCE_BAN_UNTIL__ = until;
+                    try { console.warn('[binance-guard] 币安限流，暂停 HTTP 请求至 ' + new Date(until).toLocaleTimeString('zh-CN', { hour12: false })); } catch (e) {}
+                }
+            }
+            // 从同步脚本写的错误信息里解析「预计 HH:MM:SS 解除」
+            window.__binanceBanFromText = function (text) {
+                const s = String(text || '');
+                if (!/418|429|teapot|Too Many|限流|-1003/i.test(s)) return 0;
+                const m = s.match(/预计\s*(\d{1,2}):(\d{2}):(\d{2})\s*解除/);
+                if (!m) return 0;
+                const dt = new Date();
+                dt.setHours(+m[1], +m[2], +m[3], 0);
+                let t = dt.getTime();
+                if (t < Date.now() - 12 * 3600 * 1000) t += 24 * 3600 * 1000;
+                if (t > Date.now()) setBan(t);
+                return t;
+            };
+            window.fetch = function (input, init) {
+                let url = '';
+                try { url = typeof input === 'string' ? input : ((input && input.url) || String(input)); } catch (e) {}
+                if (!isBinanceUrl(url)) return rawFetch(input, init);
+                const left = (window.__BINANCE_BAN_UNTIL__ || 0) - Date.now();
+                if (left > 0) {
+                    return Promise.reject(new Error('HTTP 418 币安限流暂停中，' + Math.ceil(left / 1000) + ' 秒后恢复'));
+                }
+                return rawFetch(input, init).then(function (res) {
+                    if (res && (res.status === 418 || res.status === 429)) {
+                        let sec = parseInt((res.headers && res.headers.get('Retry-After')) || '', 10);
+                        if (!(sec > 0)) sec = res.status === 418 ? 120 : 60;
+                        setBan(Date.now() + sec * 1000);
+                    }
+                    return res;
+                });
+            };
+        })();
+
         function closeOtherModules(activeId) {
             ['indexSection', 'newsSection', 'calendarSection', 'worldSection', 'scannerSection', 'planSection', 'feedSection']
                 .forEach(function (id) {
@@ -3187,9 +3237,12 @@
                 return;
             }
             const ago = Date.now() - st.lastFetchOk;
-            el.textContent = formatMiniAge(ago);
+            const failing = st.__lastErr && (st.__lastErrAt || 0) > st.lastFetchOk;
+            el.textContent = formatMiniAge(ago) + (failing ? ' · 刷新失败' : '');
+            el.style.color = failing ? '#dc2626' : '#2563eb';
             try {
-                el.title = '上次成功拉取：' + new Date(st.lastFetchOk).toLocaleString('zh-CN', { hour12: false });
+                el.title = '上次成功拉取：' + new Date(st.lastFetchOk).toLocaleString('zh-CN', { hour12: false }) +
+                    (failing ? '\n最近一次失败：' + st.__lastErr + '（每 30 秒自动重试）' : '');
             } catch (e) {}
         }
 
@@ -3274,10 +3327,17 @@
         function isAlignedKlineInterval(iv) {
             return iv === '5m' || iv === '15m' || iv === '30m' || iv === '1h' || iv === '4h';
         }
+        // 自动刷新策略（2026-11-26）：币安数据统一每 30 秒从币安拉一次最新数据。
+        const BINANCE_AUTO_REFRESH_MS = 30 * 1000;
         function isMiniRefreshDue(st) {
             if (!st) return false;
-            if (!st.lastFetchOk) return true;
             const now = Date.now();
+            {
+                // 所有图（币安 + 美股）：距上次成功拉取 ≥30 秒就重拉；失败时也至少隔 30 秒再试，避免网络异常时狂刷
+                const lastTry = Math.max(st.lastFetchOk || 0, st.__autoTryAt || 0);
+                return (now - lastTry) >= BINANCE_AUTO_REFRESH_MS;
+            }
+            if (!st.lastFetchOk) return true;
             const iv = st.interval || '15m';
             const period = candlePeriodMs(iv);
             if (st.src === 'us') {
@@ -3305,6 +3365,7 @@
                 if (!isMiniVisible(st)) return;
                 if (st.wrap && st.wrap.style.display === 'none') return;
                 if (!isMiniRefreshDue(st)) return;
+                st.__autoTryAt = Date.now();
                 reloadMiniChart(st);
             });
         }
@@ -3468,8 +3529,10 @@
             if (!keepData && (force || st.loadedIv !== iv || !st.rows || !st.rows.length)) {
                 clearMiniSeries(st, '走势加载中…');
             }
-            if (!MINI_CHART.pending[ck]) {
-                MINI_CHART.pending[ck] = (async function () {
+            const prevP = MINI_CHART.pending[ck];
+            if (!prevP || (Date.now() - (prevP.__at || 0)) > 30000) {
+                let myP = null;
+                myP = (async function () {
                     try {
                         const raw = (st.src === 'us') ? await fetchUSKlines(st.sina, iv, st.symbol, st.sec, (US_STOCK_MAP[st.symbol] || {}).fut) : await fetchChartKlines(st.symbol, iv, true);
                         const tzShift = (st.src === 'us') ? 0 : CHART_TZ_SHIFT;
@@ -3480,16 +3543,21 @@
                     } catch (e) {
                         return { ok: false, rows: [], err: 'K 线取数失败：' + ((e && e.message) || '网络不可达'), ts: 0 };
                     } finally {
-                        delete MINI_CHART.pending[ck];
+                        if (MINI_CHART.pending[ck] === myP) delete MINI_CHART.pending[ck];
                     }
                 })();
+                myP.__at = Date.now();
+                MINI_CHART.pending[ck] = myP;
             }
             const p = MINI_CHART.pending[ck];
             const res = await p;
             if (st.interval !== iv) return;
             const rows = res && res.rows;
             if (!res || !res.ok || !rows || !rows.length) {
-                if (keepData) return; // 保留旧图，不推进时间戳，到点后再试
+                st.__lastErr = (res && res.err) || '暂无 K 线数据';
+                st.__lastErrAt = Date.now();
+                updateMiniAge(st);
+                if (keepData) return; // 保留旧图，不推进时间戳，30 秒后再试
                 clearMiniSeries(st, (res && res.err) || '暂无 K 线数据');
                 scheduleMiniRetry(st, (res && res.err) || '暂无 K 线数据');
                 return;
@@ -3686,7 +3754,10 @@
                 setInterval(function () { mountMiniCharts(); }, 2000);  // 兜底挂载（仅新建占位时创建图表）
                 setInterval(function () { syncMiniPositions(); }, 250); // 只跟随位置，不碰数据/图表内容
                 // 主/子/美股：每 15 秒检查是否到点；只有到期的可见卡才重拉（保留旧图，失败不推进时间戳）
-                setInterval(function () { autoReloadVisibleMiniCharts(); }, 15 * 1000);
+                setInterval(function () { autoReloadVisibleMiniCharts(); }, 5 * 1000);
+                // 浏览器会冻结/降频后台标签页的定时器；回到页面时立刻补拉到期的图
+                ['focus', 'pageshow'].forEach(function (ev) { window.addEventListener(ev, function () { setTimeout(function () { try { syncMiniPositions(); autoReloadVisibleMiniCharts(); } catch (e) {} }, 300); }); });
+                document.addEventListener('resume', function () { setTimeout(function () { try { syncMiniPositions(); autoReloadVisibleMiniCharts(); } catch (e) {} }, 300); });  // 币安卡每 30 秒到期重拉（见 isMiniRefreshDue）
                 setInterval(function () { updateAllMiniAges(); try { tickDataAges(); } catch (e) {} try { syncMiniLivePrices(); } catch (e) {} }, 1000); // 相对时间文案每秒刷新，现价跟着最新报价
             };
             if (document.body) boot();
@@ -5328,7 +5399,7 @@
             document.getElementById('subDetailRisk').innerHTML=`产品：${escHtml(c.full)}<br>开仓价：${Number(c.entryPrice).toFixed(2)} · <strong>持仓数量：${quantity.toFixed(4)}</strong> · <strong>持仓价值：${Number.isFinite(positionValue)&&markPrice>0?positionValue.toFixed(2):'--'} USDT</strong> ${Number.isFinite(positionValue)&&markPrice>0?'（'+cnyOnly(positionValue)+'）':''} · 初始保证金(API)：${usdtCny(x.initM)} · 名义价值(API)：${usdtCny(p.notional)}<br>未实现盈亏（有行情时即时验算）：${Number.isFinite(pnl)?usdtCny(pnl,2,true):'--'} · 快照未实现(API)：${p.unRealizedProfit!=null&&Number.isFinite(Number(p.unRealizedProfit))?usdtCny(Number(p.unRealizedProfit),2,true):'--'}<br>强平价(API)：${Number(c.liqPrice)>0?Number(c.liqPrice).toFixed(2):'--'} · 保证金模式：${escHtml(c.mode)}`;
         }
 
-        async function refreshSubaccount(){ await loadSubaccountScript(); renderSubaccount(); }
+        async function refreshSubaccount(){ await loadSubaccountScript(); try { if (window.__binanceBanFromText && window.__BINANCE_SUBACCOUNT__) window.__binanceBanFromText(window.__BINANCE_SUBACCOUNT__.error); } catch (e) {} renderSubaccount(); }
         function startSubaccountLoader(){ refreshSubaccount(); if(subaccountTimer)clearInterval(subaccountTimer); subaccountTimer=setInterval(refreshSubaccount,8000); }
 
         const CAT_META = {
@@ -5764,6 +5835,13 @@
         }
         function refreshAllMiniCharts() {
             const btns = document.querySelectorAll('.pc-refresh-all');
+            const banUntil = window.__BINANCE_BAN_UNTIL__ || 0;
+            if (banUntil > Date.now()) {
+                const tip = '🚫 币安限流，' + new Date(banUntil).toLocaleTimeString('zh-CN', { hour12: false }) + ' 后可刷新';
+                btns.forEach(function (b) { b.textContent = tip; });
+                setTimeout(function () { btns.forEach(function (b) { b.textContent = '一键刷新所有图表'; }); }, 5000);
+                return;
+            }
             btns.forEach(function (b) { b.disabled = true; b.textContent = '正在刷新…'; });
             try { if (typeof loadUSStockQuotes === 'function') loadUSStockQuotes(); } catch (e) {}
             // MINI_CHART 是脚本里的 const，不会挂到 window 上；必须直接用词法作用域里的对象
@@ -6215,6 +6293,7 @@
                 updateLiveAccountBar();
                 return;
             }
+            try { if (window.__binanceBanFromText && window.__BINANCE_LIVE__) window.__binanceBanFromText(window.__BINANCE_LIVE__.error); } catch (e) {}
             const result = applyLivePositions();
             updateLiveAccountBar();
             if (result && result.changed && streamActive) {
@@ -6281,8 +6360,12 @@
             annotateUsdtAmounts(document.body);
         }
 
+        let lastSnapshotAt = 0;
         async function fetchSnapshot() {
             if (!streamActive || requestController) return;
+            // 限流优化（2026-11-26）：WS 实时推送正常时，HTTP 校准降到 30 秒一次（原来 5 秒，每次权重 10）
+            if (socketConnected && (Date.now() - lastSnapshotAt) < 30000) return;
+            lastSnapshotAt = Date.now();
             const activeGeneration = generation;
             const controller = new AbortController();
             requestController = controller;
@@ -6533,6 +6616,8 @@
             if (s.indexOf('451') >= 0) return '币安拒绝当前出口 IP（HTTP 451 法律限制地区）。多半是代理/VPN 节点在美国，切到香港/日本/新加坡即可恢复。';
             if (s.indexOf('401') >= 0 || s.indexOf('-2015') >= 0) return 'API 密钥无效或权限不足（HTTP 401 / -2015）。检查密钥是否被删除、是否开启合约读取权限、IP 白名单是否包含当前出口 IP。';
             if (s.indexOf('403') >= 0) return 'API 被禁止访问（HTTP 403）。检查密钥的 IP 白名单限制。';
+            const banM = s.match(/预计\s*(\d{1,2}:\d{2}:\d{2})\s*解除/);
+            if (banM && /418|429/.test(s)) return '币安封禁了当前出口 IP（HTTP 418/429 限流），预计 ' + banM[1] + ' 解除。期间后台已自动暂停请求，解除后会自动恢复，无需操作；频繁换代理节点或多开页面会延长封禁。';
             if (s.indexOf('418') >= 0 || s.indexOf('429') >= 0 || s.indexOf('-1003') >= 0) return '请求过于频繁被限流（HTTP 418/429）。停几分钟再试，或降低刷新频率。';
             if (/远程服务器返回错误/.test(s) && !/\d{3}/.test(s)) return '无法连接币安（网络或代理异常）。确认代理软件在运行。';
             return s;
@@ -7075,7 +7160,7 @@
                     const r = HP_RANGES[range] || HP_RANGES.m;
                     const ck = d.key + '_' + range;
                     const hit = defiCache[ck];
-                    if (hit && Date.now() - hit.at < 300000) return hit.res;
+                    if (hit && Date.now() - hit.at < 30000) return hit.res;   // 30 秒缓存，与自动刷新同步
                     let res;
                     try {
                         res = wrapPoints(await fetchFuturesDaily(d.sym, r.interval, r.limit), '币安合约 ' + d.sym);
@@ -7093,7 +7178,12 @@
         });
 
         let hpBusy = false;
-        async function loadHyperCharts() {
+        // 限流优化（2026-11-26）：月线/年线走势不需要每 5 秒重拉。定时器传 'auto'，命中 5 分钟缓存就跳过；
+        // 「刷新图表」按钮、一键更新、页面加载不传参数，仍然强制重拉。
+        const hpCache = {};
+        const HP_AUTO_TTL = 30 * 1000;   // 每 30 秒从币安重拉一次
+        async function loadHyperCharts(mode) {
+            const auto = mode === 'auto';
             const boxes = Array.prototype.slice.call(document.querySelectorAll('#hyperliquidProducts .hp-chart'));
             if (!boxes.length || hpBusy) return;
             hpBusy = true;
@@ -7105,13 +7195,20 @@
                 const cfg = HP_LOADERS[key];
                 if (!cfg) return;   // HLP 金库无日线接口，保留静态说明
                 const slot = (byKey[key] = byKey[key] || {});
-                box.innerHTML = '<div class="hp-chart-loading">加载中…</div>';
+                const ck = key + '_' + range;
+                const hit = hpCache[ck];
+                if (auto && hit && (Date.now() - hit.at) < HP_AUTO_TTL && box.querySelector('svg')) {
+                    slot[range] = { ok: true, n: hit.n, src: hit.src };
+                    return;
+                }
+                if (!box.querySelector('svg')) box.innerHTML = '<div class="hp-chart-loading">加载中…</div>';
                 try {
                     const res = await cfg.fn(range);
                     const pts = res && res.points;
                     if (!pts || pts.length < 2) throw new Error('数据点不足');
                     drawHpSparkline(box, pts, range);
                     slot[range] = { ok: true, n: pts.length, src: res.src };
+                    hpCache[ck] = { at: Date.now(), n: pts.length, src: res.src };
                 } catch (e) {
                     box.innerHTML = '<div class="hp-chart-loading">' + escHtml(cfg.label) + '（' + (range === 'y' ? '近一年' : '近一个月') + '）加载失败：' + escHtml((e && e.message) || '接口不可达') + '</div>';
                     slot[range] = { ok: false, err: (e && e.message) || '失败' };
@@ -7755,11 +7852,11 @@
                 let timer = null;
                 try {
                     const ctl = new AbortController();
-                    timer = setTimeout(function () { ctl.abort(); }, 5000);
+                    timer = setTimeout(function () { ctl.abort(); }, 8000);
                     const res = await fetch(urls[i], { cache: 'no-store', credentials: 'omit', signal: ctl.signal });
+                    if (!res.ok) { clearTimeout(timer); timer = null; lastError = 'HTTP ' + res.status; continue; }
+                    const rows = await res.json();   // 超时一直覆盖到响应体读完，避免卡死
                     clearTimeout(timer); timer = null;
-                    if (!res.ok) { lastError = 'HTTP ' + res.status; continue; }
-                    const rows = await res.json();
                     if (Array.isArray(rows) && rows.length) {
                         setCachedKline(symbol, interval, rows);
                         console.log('✅ K线获取成功:', symbol, interval, rows.length, '条');
@@ -8591,15 +8688,24 @@
         async function refreshFromBinanceApi() {
             const btn = document.getElementById('apiRefreshBtn');
             const label = btn ? (btn.dataset.label || btn.textContent) : '';
-            if (btn) { btn.dataset.label = label; btn.disabled = true; btn.textContent = '⏳ 正在自动同步…'; }
+            if (btn) { btn.dataset.label = label; btn.disabled = true; btn.textContent = '⏳ 正在读取同步数据…'; }
             const restore = function (text, delay) {
                 if (!btn) return;
                 btn.textContent = text;
                 if (delay) { setTimeout(function () { btn.textContent = label; btn.disabled = false; }, delay); }
                 else { btn.disabled = false; }
             };
-            // 持仓由 HKCU Run → auto_sync_hidden.vbs 后台直连 fapi 写入 positions_live.js / subaccount_live.js
-            // 页面不再依赖 127.0.0.1:8788 中转，也不再提示双击 bat。
+            const isRateLimited = function (s) { return /418|429|teapot|Too Many|限流|-1003/i.test(String(s || '')); };
+            const errText = function () {
+                const a = window.__BINANCE_LIVE__, b = window.__BINANCE_SUBACCOUNT__;
+                return [a && a.error, b && b.error].filter(Boolean).join(' | ');
+            };
+            const hhmm = function (iso) {
+                const dt = new Date(iso);
+                return Number.isFinite(dt.getTime()) ? dt.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' }) : '';
+            };
+            // 持仓由 HKCU Run → auto_sync_hidden.vbs 后台直连 fapi 写入 positions_live.js / subaccount_live.js，
+            // 本按钮只重新读取这两个文件并显示真实状态（限流 / 失败 / 成功）。
             try {
                 let ok = false;
                 for (let i = 0; i < 6; i++) {
@@ -8609,25 +8715,33 @@
                     const sub = window.__BINANCE_SUBACCOUNT__;
                     const liveOk = live && !live.error && live.positions;
                     const subOk = sub && !sub.error;
+                    if (liveOk && subOk) { ok = true; break; }
+                    if (isRateLimited(errText())) break;   // 限流时再等也没用，直接告诉用户
                     if (liveOk || subOk) { ok = true; break; }
                     await new Promise(function (r) { setTimeout(r, 1500); });
                 }
-                if (ok) {
+                const err = errText();
+                if (btn) btn.title = err ? friendlyApiError(err) : '';
+                const bar = document.getElementById('liveAccountBar');
+                if (isRateLimited(err)) {
+                    const until = (typeof window.__binanceBanFromText === 'function') ? window.__binanceBanFromText(err) : 0;
+                    const live = window.__BINANCE_LIVE__ || {};
+                    const at = live.updatedAt ? hhmm(live.updatedAt) : '';
+                    let text = '🚫 币安限流';
+                    if (until > Date.now()) text += ' · ' + new Date(until).toLocaleTimeString('zh-CN', { hour12: false }) + ' 解除';
+                    if (at) text += ' · 数据停在 ' + at;
+                    restore(text, 10000);
+                    if (bar) bar.innerHTML = '<span class="lab-err">' + escHtml(friendlyApiError(err)) + '</span>';
+                } else if (ok) {
                     restore('✅ 已刷新 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false }), 4000);
                 } else {
-                    const err = (window.__BINANCE_LIVE__ && window.__BINANCE_LIVE__.error) || (window.__BINANCE_SUBACCOUNT__ && window.__BINANCE_SUBACCOUNT__.error) || '等待后台同步';
-                    restore('⏳ 同步中', 4000);
-                    const bar = document.getElementById('liveAccountBar');
-                    if (bar) {
-                        bar.innerHTML = '<span class="lab-muted">正在自动同步，请稍候（' + String(err).replace(/[<>&]/g, '') + '）。登录后后台已自启，无需手动操作。</span>';
-                    }
+                    const fe = friendlyApiError(err || '后台同步尚未写入数据，请确认同步脚本在运行');
+                    restore('⚠️ ' + (fe.length > 22 ? fe.slice(0, 22) + '…' : fe), 8000);
+                    if (bar) bar.innerHTML = '<span class="lab-err">' + escHtml(fe) + '</span>';
                 }
             } catch (e) {
-                restore('⏳ 请稍候', 3000);
-                const bar = document.getElementById('liveAccountBar');
-                if (bar) {
-                    bar.innerHTML = '<span class="lab-muted">正在自动同步，请稍候。登录后后台已自启，无需双击任何启动脚本。</span>';
-                }
+                restore('⚠️ 刷新出错', 4000);
+                if (btn) btn.title = String((e && e.message) || e);
             }
         }
 
@@ -8637,7 +8751,7 @@
             startLiveLoader();
             fetchCnyRate();
             loadHyperCharts();
-            setInterval(loadHyperCharts, 5000);
+            setInterval(function () { loadHyperCharts('auto'); }, 5000);
             setInterval(fetchCnyRate, 5000);
             setTimeout(updateRateBar, 2500);
             setInterval(updateRateBar, 5000);
@@ -8914,7 +9028,8 @@
                 console.log('页面恢复可见，恢复正常刷新');
                 // 立即刷新一次图表
                 if (typeof loadHyperCharts === 'function') {
-                    setTimeout(loadHyperCharts, 500);
+                    setTimeout(function () { loadHyperCharts('auto'); }, 500);
+                    setTimeout(function () { try { syncMiniPositions(); autoReloadVisibleMiniCharts(); } catch (e) {} }, 300);
                 }
             }
         });
@@ -8928,6 +9043,42 @@
         window.addEventListener('unhandledrejection', function(event) {
             console.error('未处理的 Promise 拒绝:', event.reason);
         });
+
+        // ========== 后台服务状态（2026-11-26）==========
+        // 后台由看门狗全自动管理（登录 Windows 自启、代码更新自动重启、卡死自动恢复），这里只显示状态。
+        async function checkBgService() {
+            const el = document.getElementById('bgSvcStatus');
+            if (!el) return;
+            try { if (/github\.io$/i.test(location.hostname || '')) { el.style.display = 'none'; return; } } catch (e) {}
+            const set = function (text, color, tip) { el.textContent = text; el.style.color = color; el.title = tip || ''; };
+            try {
+                const ctl = new AbortController();
+                const tm = setTimeout(function () { ctl.abort(); }, 6000);
+                const res = await fetch('http://127.0.0.1:8788/status?t=' + Date.now(), { cache: 'no-store', credentials: 'omit', signal: ctl.signal });
+                clearTimeout(tm);
+                const s = await res.json();
+                const wd = s && s.watchdog;
+                const wdFresh = wd && wd.at && (Date.now() - new Date(wd.at).getTime()) < 90000;
+                const items = (wd && wd.items) || [];
+                const label = function (x) { return String(x.name || '').replace(/\.ps1$/, ''); };
+                const tip = items.map(function (x) { return label(x) + '：' + (x.running ? '运行中' : '未运行') + (x.action ? '（' + x.action + '）' : '') + (x.syntaxError ? ' 语法错误 ' + x.syntaxError : ''); }).join('\n');
+                if (s && s.banned) {
+                    set('🟠 币安限流中，' + s.bannedUntil + ' 后自动恢复', '#f59e0b', tip);
+                } else if (!wdFresh) {
+                    set('🟡 后台运行中，看门狗启动中…', '#eab308', tip);
+                } else {
+                    const bad = items.filter(function (x) { return x.syntaxError; });
+                    const down = items.filter(function (x) { return !x.running && x.action !== 'missing'; });
+                    if (bad.length) set('🟠 新代码有错误，已保留旧版本继续运行', '#f59e0b', tip);
+                    else if (down.length) set('🟡 正在自动恢复：' + down.map(label).join('、'), '#eab308', tip);
+                    else set('🟢 后台全自动运行中', '#16a34a', tip);
+                }
+            } catch (e) {
+                set('🟠 后台服务暂未响应，通常 1 分钟内自动恢复；一直如此请重启电脑一次', '#f59e0b', String((e && e.message) || e));
+            }
+        }
+        setTimeout(checkBgService, 1500);
+        setInterval(checkBgService, 30000);
     </script>
 </body>
 </html>

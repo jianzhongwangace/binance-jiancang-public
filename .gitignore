@@ -15,3 +15,14 @@ publish_live_state.json
 publish_live.log
 publish_live_stdout.log
 BinanceAutoSync.lnk
+# 2026-11-26 新增：看门狗 / 刷新服务的运行时文件
+binance_ban.json
+watchdog.log
+watchdog.log.old
+watchdog_status.json
+watchdog_stdout.log
+refresh_server.log
+refresh_server_events.log
+*.log.old
+*.before_fix_*
+_github_upload/

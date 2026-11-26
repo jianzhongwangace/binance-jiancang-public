@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$Once,
   [int]$MinIntervalSec = 240,   # 4 minutes default (3-5 min window)
   [int]$LoopSleepSec = 60
@@ -17,7 +17,13 @@ $LiveFiles = @(
   "subaccount_live.js",
   "subaccount_live.json"
 )
-# Optional HTML files only when PublishHtml switch used elsewhere; default live-only
+# 网页文件（2026-11-26）：本地有改动就自动同步到 GitHub Pages，两边始终是同一版本。
+# 键 = 本地文件，值 = 仓库里的路径（仓库里的「实时价格监控_WebSocket版.html」一直是 index.html 的副本）。
+$PageFiles = [ordered]@{
+  "index.html" = @("index.html", "实时价格监控_WebSocket版.html")
+  "vendor/lightweight-charts.js" = @("vendor/lightweight-charts.js")
+}
+$PageSettleSec = 20   # 网页文件改完 20 秒内不发，避免把写了一半的文件发上去
 $StateFile = Join-Path $Dir "publish_live_state.json"
 $LogFile = Join-Path $Dir "publish_live.log"
 
@@ -103,7 +109,7 @@ function Publish-Once {
   if ($state.fileHashes) {
     foreach ($p in $state.fileHashes.PSObject.Properties) {
       if ($p.Name -in @('IsFixedSize','IsReadOnly','IsSynchronized','Keys','Values','SyncRoot','Count')) { continue }
-      if ($p.Name -match '^(positions_live|subaccount_live)\.(js|json)$') {
+      if ($p.Name -match '^(positions_live|subaccount_live)\.(js|json)$' -or $p.Name -like 'page:*') {
         $hashes[$p.Name] = [string]$p.Value
       }
     }
@@ -115,7 +121,36 @@ function Publish-Once {
     if (-not $hashes.ContainsKey($f) -or $hashes[$f] -ne $h) { $changed += $f }
     $hashes[$f] = $h
   }
-  if ($changed.Count -eq 0) {
+
+  # ---- 网页文件：本地改过才上传 ----
+  $changedPages = @()
+  foreach ($local in $PageFiles.Keys) {
+    $lp = Join-Path $Dir ($local -replace '/', '\')
+    if (-not (Test-Path -LiteralPath $lp)) { continue }
+    $fi = Get-Item -LiteralPath $lp
+    $h = Get-FileSha256 $lp
+    $key = "page:$local"
+    if ($hashes.ContainsKey($key) -and $hashes[$key] -eq $h) { continue }
+    if (((Get-Date) - $fi.LastWriteTime).TotalSeconds -lt $PageSettleSec) {
+      Write-Log ("page $local changed, waiting to settle")
+      continue
+    }
+    if ($local -like '*.html') {
+      $raw = [System.IO.File]::ReadAllText($lp, [System.Text.Encoding]::UTF8)
+      if ($fi.Length -lt 100000 -or $raw -notmatch '</html>\s*$') {
+        Write-Log ("page $local looks incomplete (size=$($fi.Length)), not publishing")
+        continue
+      }
+      if ($raw -match 'BINANCE_API_SECRET|APISECRET|apiSecret|BEGIN (RSA |OPENSSH )?PRIVATE KEY') {
+        Write-Log ("page $local contains secret-like content, not publishing")
+        continue
+      }
+    }
+    $changedPages += $local
+    $hashes[$key] = $h
+  }
+
+  if ($changed.Count -eq 0 -and $changedPages.Count -eq 0) {
     Write-Log "skip no content change"
     return $false
   }
@@ -135,6 +170,16 @@ function Publish-Once {
   $baseTree = $commit.tree.sha
 
   $treeItems = @()
+  foreach ($local in $changedPages) {
+    $bytes = [System.IO.File]::ReadAllBytes((Join-Path $Dir ($local -replace '/', '\')))
+    $blob = Invoke-GhApi -Method POST -Path "/repos/$Owner/$Repo/git/blobs" -Token $token -Body @{
+      content = [Convert]::ToBase64String($bytes)
+      encoding = "base64"
+    }
+    foreach ($remote in $PageFiles[$local]) {
+      $treeItems += @{ path = $remote; mode = "100644"; type = "blob"; sha = $blob.sha }
+    }
+  }
   foreach ($f in $LiveFiles) {
     $bytes = [System.IO.File]::ReadAllBytes((Join-Path $Dir $f))
     $b64 = [Convert]::ToBase64String($bytes)
@@ -155,7 +200,9 @@ function Publish-Once {
     tree = $treeItems
   }
 
-  $msg = "auto(live): refresh public snapshots ({0})" -f (($changed -join ", "))
+  $allChanged = @($changed) + @($changedPages)
+  $msg = "auto(live): refresh public snapshots ({0})" -f (($allChanged -join ", "))
+  if ($changedPages.Count -gt 0) { $msg = "auto(page): sync page from desktop ({0})" -f (($allChanged -join ", ")) }
   $newCommit = Invoke-GhApi -Method POST -Path "/repos/$Owner/$Repo/git/commits" -Token $token -Body @{
     message = $msg
     tree = $tree.sha
@@ -172,11 +219,11 @@ function Publish-Once {
   $state = [pscustomobject]@{
     lastPublishUnix = $now
     lastCommit = $newCommit.sha
-    lastFiles = @($changed)
+    lastFiles = @($allChanged)
     fileHashes = [pscustomobject]$hashObj
   }
   Write-State $state
-  Write-Log ("PUSH_OK commit={0} files={1}" -f $newCommit.sha, ($changed -join ","))
+  Write-Log ("PUSH_OK commit={0} files={1}" -f $newCommit.sha, ($allChanged -join ","))
   return $true
 }
 
