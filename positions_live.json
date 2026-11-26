@@ -1,6 +1,6 @@
 {
     "updatedAt":  "2026-11-26T19:05:41+08:00",
-    "error":  "基础连接已经关闭: 发送时发生错误。",
+    "error":  "无法连接到远程服务器",
     "account":  {
                     "walletBalance":  3488.27984088,
                     "totalWalletBalance":  3488.27984088,
